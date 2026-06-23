@@ -97,6 +97,68 @@ tool_tmp_dir() {
   printf '%s/%s/tmp' "$MISE_ROOT" "$tool"
 }
 
+mise_tool_install_dir() {
+  local tool="$1"
+  local version="$2"
+  printf '%s/installs/%s/%s' "$MISE_DATA_DIR" "$tool" "$version"
+}
+
+install_archive_into_mise_tool() {
+  local tool="$1"
+  local version="$2"
+  local archive_file="$3"
+  local executable_rel="$4"
+  local force="$5"
+  local target
+  local executable
+  local tmp_dir
+  local found_executable
+  local candidate
+  local source_home
+
+  target="$(mise_tool_install_dir "$tool" "$version")"
+  executable="${target}/${executable_rel}"
+
+  [[ -f "$archive_file" ]] || die "archive not found: $archive_file"
+  ensure_command tar
+
+  if [[ -x "$executable" && "$force" != "1" ]]; then
+    log "${tool}@${version} already exists at ${target}"
+    return
+  fi
+
+  if [[ -e "$target" && "$force" != "1" ]]; then
+    die "target already exists but is not a valid ${tool} home: ${target}; use --force to replace it"
+  fi
+
+  log "extracting ${archive_file} to ${tool}@${version}"
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/devops-${tool}-archive.XXXXXX")"
+  if ! tar -xf "$archive_file" -C "$tmp_dir"; then
+    rm -rf "$tmp_dir"
+    die "failed to extract archive: $archive_file"
+  fi
+
+  found_executable=""
+  while IFS= read -r candidate; do
+    if [[ -x "$candidate" ]]; then
+      found_executable="$candidate"
+      break
+    fi
+  done < <(find "$tmp_dir" -mindepth 1 -maxdepth 5 -path "*/${executable_rel}" \( -type f -o -type l \) -print)
+
+  if [[ -z "$found_executable" ]]; then
+    rm -rf "$tmp_dir"
+    die "archive does not contain an executable ${executable_rel}: $archive_file"
+  fi
+
+  source_home="$(cd "$(dirname "$found_executable")/.." && pwd)"
+  rm -rf "$target"
+  mkdir -p "$target"
+  cp -a "${source_home}/." "$target/"
+  chmod 0755 "$executable" 2>/dev/null || true
+  rm -rf "$tmp_dir"
+}
+
 export_mise_env_for_tool() {
   local tool="$1"
   export MISE_DATA_DIR

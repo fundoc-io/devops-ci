@@ -90,6 +90,50 @@ If the platform package was built without `artifacts/mise/mise` or `artifacts/cl
 
 Each tool family uses its own `MISE_DATA_DIR`, `MISE_CACHE_DIR`, and `MISE_TMP_DIR` under `/data/mise/<tool>/`.
 
+Tools can also be installed from local archives when Jenkins nodes cannot download through `mise`:
+
+```bash
+sudo scripts/install-node-runtime.sh \
+  --root /data/mise \
+  --archive /data/packages/node/node-v20-linux-x64.tar.gz \
+  20
+
+sudo scripts/install-java-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/jdk/temurin-11-linux-x64.tar.gz \
+  11
+
+sudo scripts/install-maven-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/maven/apache-maven-3.9.6-bin.tar.gz \
+  3
+
+sudo scripts/install-gradle-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/gradle/gradle-8.8-bin.tar.gz \
+  8.8
+```
+
+Each archive must contain the expected executable:
+
+```text
+Node.js: bin/node
+Java:    bin/java
+Maven:   bin/mvn
+Gradle:  bin/gradle
+```
+
+The scripts extract archives into the same managed locations that `mise install` would use:
+
+```text
+/data/mise/node/data/installs/node/20
+/data/mise/java/data/installs/java/temurin-11
+/data/mise/maven/data/installs/maven/3.9.6
+/data/mise/gradle/data/installs/gradle/8.8
+```
+
+`generate-toolchain-index.sh` does not need to know whether tools came from local archives or from `mise install`.
+
 ## Host Node Runtime
 
 Install the shared Node.js runtime used by the `devops-cli` wrapper:
@@ -135,7 +179,7 @@ The selected `mise` root is the `--root` argument, or `MISE_ROOT`, defaulting to
 <MISE_ROOT>/gradle/data
 ```
 
-`generate-toolchain-index.sh` turns manifest entries into concrete build-time homes. The manifest `name` is the public platform key used by `.ci/toolchain.json`; the manifest `version` is the actual `mise` install identifier:
+`generate-toolchain-index.sh` turns installed manifest entries into concrete build-time homes. The manifest `name` is the public platform key used by `.ci/toolchain.json`; the manifest `version` is the actual `mise` install identifier:
 
 ```text
 "21" -> <MISE_ROOT>/java/data/installs/java/temurin-21 -> JAVA_HOME
@@ -158,7 +202,16 @@ sudo scripts/validate-mise-tools.sh
 sudo scripts/generate-toolchain-index.sh
 ```
 
-`generate-toolchain-index.sh` validates every manifest entry before writing `/data/devops-ci/index.json` by default. If any Java, Maven, or Gradle executable is missing or fails its version command, the index is not written.
+Manifests are available-version catalogs, not a requirement that every Jenkins node installs every key. By default, `validate-mise-tools.sh` and `generate-toolchain-index.sh` skip missing manifest entries and only validate/index tools that are actually installed on the node.
+
+For example, if a node only installs Java 11 and Maven 3, the generated index only exposes `jdk: "11"` and `maven: "3"`. A project declaring an unavailable key such as `jdk: "8"` will fail during `devops-cli resolve`, which is the expected platform availability check.
+
+Use `--strict` when preparing a node that is expected to contain every manifest entry:
+
+```bash
+sudo scripts/validate-mise-tools.sh --strict
+sudo scripts/generate-toolchain-index.sh --strict
+```
 
 ## Jenkins Consumption
 

@@ -11,6 +11,8 @@ Usage:
     [--root /data/mise] \
     [--manifest /data/mise/manifests/node.json] \
     [--node-path-file /data/mise/runtime-config/devops-cli-node.path] \
+    [--archive /path/to/node.tar.gz] \
+    [--force] \
     [key-or-version...]
 
 Installs a host Node.js runtime for platform tools such as devops-cli.
@@ -22,11 +24,17 @@ Default install key:
 
 The installed executable path is written to:
   /data/mise/runtime-config/devops-cli-node.path
+
+When --archive is provided, the script does not download through mise. It
+extracts one local Node.js archive into:
+  /data/mise/node/data/installs/node/<manifest-version>
 EOF
 }
 
 manifest=""
 node_path_file=""
+archive=""
+force=0
 versions=()
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +54,15 @@ while [[ $# -gt 0 ]]; do
       node_path_file="$2"
       shift 2
       ;;
+    --archive)
+      [[ $# -ge 2 ]] || die "--archive requires a value"
+      archive="$2"
+      shift 2
+      ;;
+    --force)
+      force=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -58,7 +75,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 require_root
-ensure_mise
 manifest="${manifest:-${MISE_ROOT}/manifests/node.json}"
 node_path_file="${node_path_file:-${MISE_ROOT}/runtime-config/devops-cli-node.path}"
 
@@ -68,14 +84,25 @@ fi
 
 mapfile -t resolved_versions < <(manifest_resolved_versions "$manifest" "node" "${versions[@]}")
 
+if [[ -n "$archive" && "${#resolved_versions[@]}" -ne 1 ]]; then
+  die "--archive installs exactly one Node.js version; pass one key such as lts or 20"
+fi
+
 export_mise_env_for_tool "node"
 mkdir -p "$MISE_DATA_DIR" "$MISE_CACHE_DIR" "$MISE_TMP_DIR" "$(dirname "$node_path_file")"
 
 runtime_node_path=""
 for version in "${resolved_versions[@]}"; do
-  log "installing node@${version}"
-  "$MISE_BIN" install "node@${version}"
-  node_path="$("$MISE_BIN" exec "node@${version}" -- node -p 'process.execPath')"
+  if [[ -n "$archive" ]]; then
+    install_archive_into_mise_tool "node" "$version" "$archive" "bin/node" "$force"
+    node_path="$(mise_tool_install_dir "node" "$version")/bin/node"
+  else
+    ensure_mise
+    log "installing node@${version}"
+    "$MISE_BIN" install "node@${version}"
+    node_path="$("$MISE_BIN" exec "node@${version}" -- node -p 'process.execPath')"
+  fi
+
   [[ -x "$node_path" ]] || die "node executable not found after install: $node_path"
   "$node_path" --version
 

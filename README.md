@@ -189,6 +189,32 @@ sudo scripts/generate-toolchain-index.sh \
   --ci-root /data/devops-ci
 ```
 
+The generated index includes installed tools only. Missing manifest entries are skipped by default, so a node that installs only Java 11 will not expose Java 8/17/21. Use `--strict` on `validate-mise-tools.sh` or `generate-toolchain-index.sh` only when a node must contain every manifest entry.
+
+For offline installation, provide local archives instead of downloading through `mise`:
+
+```bash
+sudo scripts/install-node-runtime.sh \
+  --root /data/mise \
+  --archive /data/packages/node/node-v20-linux-x64.tar.gz \
+  20
+
+sudo scripts/install-java-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/jdk/temurin-11-linux-x64.tar.gz \
+  11
+
+sudo scripts/install-maven-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/maven/apache-maven-3.9.6-bin.tar.gz \
+  3
+
+sudo scripts/install-gradle-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/gradle/gradle-8.8-bin.tar.gz \
+  8.8
+```
+
 ## Platform Package
 
 Build local distribution artifacts:

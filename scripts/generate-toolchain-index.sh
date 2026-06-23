@@ -12,10 +12,12 @@ Usage:
     [--manifest-dir /data/mise/manifests] \
     [--ci-root /data/devops-ci] \
     [--base config/devops-toolchain/index.base.json] \
-    [--output /data/devops-ci/index.json]
+    [--output /data/devops-ci/index.json] \
+    [--strict]
 
-Generates the platform toolchain index only after all declared Java, Maven,
-and Gradle tools are present and executable.
+Generates the platform toolchain index from installed Java, Maven, and Gradle
+tools. By default, manifest entries that are not installed are skipped with a
+warning. Use --strict to require every manifest entry to be present.
 EOF
 }
 
@@ -23,6 +25,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 manifest_dir=""
 base_file="${REPO_ROOT}/config/devops-toolchain/index.base.json"
 output_file=""
+strict=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -52,6 +55,10 @@ while [[ $# -gt 0 ]]; do
       output_file="$2"
       shift 2
       ;;
+    --strict)
+      strict=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -72,24 +79,49 @@ ensure_command python3
 mkdir -p "$(dirname "$output_file")"
 tmp_file="$(mktemp "${output_file}.tmp.XXXXXX")"
 
-python3 - "$MISE_ROOT" "$manifest_dir" "$base_file" "$tmp_file" <<'PY'
+python3 - "$MISE_ROOT" "$manifest_dir" "$base_file" "$tmp_file" "$strict" <<'PY'
 import json
 import os
 import subprocess
 import sys
 
-mise_root, manifest_dir, base_file, output_file = sys.argv[1:5]
+mise_root, manifest_dir, base_file, output_file, strict_raw = sys.argv[1:6]
+strict = strict_raw == "1"
 
 def load_json(path):
     with open(path, "r", encoding="utf-8") as fh:
         return json.load(fh)
 
-def run_check(command):
-    subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def warn(message):
+    print(f"WARNING: {message}", file=sys.stderr)
 
-def require_exe(path):
-    if not os.path.isfile(path) or not os.access(path, os.X_OK):
-        raise SystemExit(f"required executable not found: {path}")
+def can_use(command):
+    try:
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        return True
+    except Exception as exc:
+        warn(f"validation failed for {' '.join(command)}: {exc}")
+        return False
+
+def executable_available(path):
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+def include_or_skip(kind, name, executable, command):
+    if not executable_available(executable):
+        message = f"{kind} {name} is not installed: {executable}"
+        if strict:
+            raise SystemExit(message)
+        warn(f"skipping {message}")
+        return False
+
+    if not can_use(command):
+        message = f"{kind} {name} exists but failed validation"
+        if strict:
+            raise SystemExit(message)
+        warn(f"skipping {message}")
+        return False
+
+    return True
 
 index = load_json(base_file)
 index.setdefault("java", {})
@@ -106,27 +138,24 @@ for item in java_manifest.get("java", []):
     version = item["version"]
     java_home = os.path.join(mise_root, "java", "data", "installs", "java", version)
     java_bin = os.path.join(java_home, "bin", "java")
-    require_exe(java_bin)
-    run_check([java_bin, "-version"])
-    index["java"]["jdks"][name] = {"JAVA_HOME": java_home}
+    if include_or_skip("java", name, java_bin, [java_bin, "-version"]):
+        index["java"]["jdks"][name] = {"JAVA_HOME": java_home}
 
 for item in maven_manifest.get("maven", []):
     name = item["name"]
     version = item["version"]
     maven_home = os.path.join(mise_root, "maven", "data", "installs", "maven", version)
     mvn_bin = os.path.join(maven_home, "bin", "mvn")
-    require_exe(mvn_bin)
-    run_check([mvn_bin, "-v"])
-    index["java"]["maven"][name] = {"MAVEN_HOME": maven_home}
+    if include_or_skip("maven", name, mvn_bin, [mvn_bin, "-v"]):
+        index["java"]["maven"][name] = {"MAVEN_HOME": maven_home}
 
 for item in gradle_manifest.get("gradle", []):
     name = item["name"]
     version = item["version"]
     gradle_home = os.path.join(mise_root, "gradle", "data", "installs", "gradle", version)
     gradle_bin = os.path.join(gradle_home, "bin", "gradle")
-    require_exe(gradle_bin)
-    run_check([gradle_bin, "-v"])
-    index["java"]["gradle"][name] = {"GRADLE_HOME": gradle_home}
+    if include_or_skip("gradle", name, gradle_bin, [gradle_bin, "-v"]):
+        index["java"]["gradle"][name] = {"GRADLE_HOME": gradle_home}
 
 with open(output_file, "w", encoding="utf-8") as fh:
     json.dump(index, fh, ensure_ascii=False, indent=2)

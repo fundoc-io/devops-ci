@@ -189,6 +189,32 @@ sudo scripts/generate-toolchain-index.sh \
   --ci-root /data/devops-ci
 ```
 
+生成的 index 只包含当前节点已经安装的工具。未安装的 manifest 条目默认跳过，所以只安装 Java 11 的节点不会暴露 Java 8/17/21。只有当某个节点必须安装 manifest 中全部条目时，才给 `validate-mise-tools.sh` 或 `generate-toolchain-index.sh` 加 `--strict`。
+
+如果下载慢，可以用本地 archive 离线安装，不走 `mise install` 下载：
+
+```bash
+sudo scripts/install-node-runtime.sh \
+  --root /data/mise \
+  --archive /data/packages/node/node-v20-linux-x64.tar.gz \
+  20
+
+sudo scripts/install-java-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/jdk/temurin-11-linux-x64.tar.gz \
+  11
+
+sudo scripts/install-maven-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/maven/apache-maven-3.9.6-bin.tar.gz \
+  3
+
+sudo scripts/install-gradle-tools.sh \
+  --root /data/mise \
+  --archive /data/packages/gradle/gradle-8.8-bin.tar.gz \
+  8.8
+```
+
 ## 平台打包
 
 构建本地产物：

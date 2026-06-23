@@ -7,13 +7,16 @@ source "${SCRIPT_DIR}/lib/mise-common.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/validate-mise-tools.sh [--root /data/mise] [--manifest-dir /data/mise/manifests]
+  scripts/validate-mise-tools.sh [--root /data/mise] [--manifest-dir /data/mise/manifests] [--strict]
 
 Validates installed Java, Maven, and Gradle versions declared in manifests.
+By default, missing manifest entries are skipped with a warning. Use --strict
+to require every manifest entry to be present.
 EOF
 }
 
 manifest_dir=""
+strict=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -26,6 +29,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || die "--manifest-dir requires a value"
       manifest_dir="$2"
       shift 2
+      ;;
+    --strict)
+      strict=1
+      shift
       ;;
     -h|--help)
       usage
@@ -42,7 +49,13 @@ manifest_dir="${manifest_dir:-${MISE_ROOT}/manifests}"
 validate_java() {
   local version="$1"
   local java_home="${MISE_ROOT}/java/data/installs/java/${version}"
-  [[ -x "${java_home}/bin/java" ]] || die "java binary not found: ${java_home}/bin/java"
+  if [[ ! -x "${java_home}/bin/java" ]]; then
+    if [[ "$strict" == "1" ]]; then
+      die "java binary not found: ${java_home}/bin/java"
+    fi
+    log "skipping missing java ${version}: ${java_home}/bin/java"
+    return
+  fi
   log "validating java ${version}"
   "${java_home}/bin/java" -version
 }
@@ -50,7 +63,13 @@ validate_java() {
 validate_maven() {
   local version="$1"
   local maven_home="${MISE_ROOT}/maven/data/installs/maven/${version}"
-  [[ -x "${maven_home}/bin/mvn" ]] || die "mvn binary not found: ${maven_home}/bin/mvn"
+  if [[ ! -x "${maven_home}/bin/mvn" ]]; then
+    if [[ "$strict" == "1" ]]; then
+      die "mvn binary not found: ${maven_home}/bin/mvn"
+    fi
+    log "skipping missing maven ${version}: ${maven_home}/bin/mvn"
+    return
+  fi
   log "validating maven ${version}"
   "${maven_home}/bin/mvn" -v
 }
@@ -58,7 +77,13 @@ validate_maven() {
 validate_gradle() {
   local version="$1"
   local gradle_home="${MISE_ROOT}/gradle/data/installs/gradle/${version}"
-  [[ -x "${gradle_home}/bin/gradle" ]] || die "gradle binary not found: ${gradle_home}/bin/gradle"
+  if [[ ! -x "${gradle_home}/bin/gradle" ]]; then
+    if [[ "$strict" == "1" ]]; then
+      die "gradle binary not found: ${gradle_home}/bin/gradle"
+    fi
+    log "skipping missing gradle ${version}: ${gradle_home}/bin/gradle"
+    return
+  fi
   log "validating gradle ${version}"
   "${gradle_home}/bin/gradle" -v
 }
@@ -79,4 +104,4 @@ for version in "${gradle_versions[@]}"; do
   validate_gradle "$version"
 done
 
-log "all mise-managed tools validated"
+log "mise-managed tool validation complete"

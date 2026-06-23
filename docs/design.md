@@ -121,7 +121,7 @@ Default paths:
 
 `scripts/install-node-runtime.sh lts` installs `node@lts` under `/data/mise/node/data` and writes the selected executable path to `/data/mise/runtime-config/devops-cli-node.path`. Pass that path to `scripts/install-devops-ci-cli.sh --node` when installing the Jenkins agent CLI wrapper.
 
-`scripts/generate-toolchain-index.sh` validates installed Java/Maven/Gradle tools, then writes `/data/devops-ci/index.json`. The generated index maps public keys such as `jdk: "21"` to actual tool homes.
+`scripts/generate-toolchain-index.sh` validates installed Java/Maven/Gradle tools, then writes `/data/devops-ci/index.json`. The generated index maps public keys such as `jdk: "21"` to actual tool homes. Missing manifest entries are skipped by default; pass `--strict` only when the node must contain every manifest entry.
 
 ## Distribution
 
@@ -153,6 +153,8 @@ sudo scripts/install-java-tools.sh --root /data/mise 11
 sudo scripts/install-maven-tools.sh --root /data/mise 3
 sudo scripts/generate-toolchain-index.sh --root /data/mise --ci-root /data/devops-ci
 ```
+
+For offline installation, Node.js, Java, Maven, and Gradle install scripts all support `--archive <tool.tar.gz> <key>`. Local archives are extracted to the same managed install directories used by `mise install`, so generated indexes and Jenkins runtime behavior stay unchanged.
 
 Root packaging is driven by `Makefile`:
 
