@@ -1,0 +1,26 @@
+* text=auto eol=lf
+
+# Shell and CI entrypoint files must keep LF line endings. CRLF breaks shebangs
+# as /usr/bin/env tries to execute "bash\r".
+*.sh text eol=lf
+Makefile text eol=lf
+Dockerfile* text eol=lf
+*.groovy text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.ts text eol=lf
+*.mjs text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Archive and binary artifacts are not line-ending normalized.
+*.tgz binary
+*.tar.gz binary
+*.zip binary
+*.gz binary
+*.bin binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.jar binary

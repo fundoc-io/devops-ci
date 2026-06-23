@@ -11,7 +11,7 @@ The CLI is only one module. The root project also packages scripts, Docker templ
 - `tools/devops-toolchain-cli/`: TypeScript CLI subproject. The user npm package exposes `devops-cli init`, `validate`, `print`, and `resolve`. The Jenkins agent tarball exposes the same root command names without an extra namespace.
 - `scripts/`: host preparation, `mise` setup, index generation, CLI tarball installation, Docker image build, and platform package creation.
 - `config/devops-toolchain/`: base platform index, primarily Node major to Docker image mapping.
-- `config/mise/manifests/`: Java, Maven, and Gradle install manifests. Manifest `name` is the public key; manifest `version` is the actual `mise` install identifier.
+- `config/mise/manifests/`: host Node.js, Java, Maven, and Gradle install manifests. Manifest `name` is the public key; manifest `version` is the actual `mise` install identifier.
 - `docker/node-runner/`: Node Runner Dockerfile template and fixed entrypoint.
 - `jenkins/snippets/`: a copy-paste Groovy helper for ordinary `Pipeline script from SCM` files.
 - `resources/`: optional local binary resources such as a pre-supplied `mise` binary. Large binaries are not committed.
@@ -104,19 +104,22 @@ Groovy does not read `/data/devops-ci/index.json` or maintain version allowlists
 
 ## Mise Layout
 
-`mise` is used only for host preparation, not normal Jenkins builds.
+`mise` is used for host preparation. The host Node.js runtime installed by `scripts/install-node-runtime.sh` is only for platform tools such as `devops-cli`; project Node.js builds still run in Docker.
 
 Default paths:
 
 ```text
 /usr/local/bin/mise
 /data/mise
+/data/mise/runtime-config/devops-cli-node.path
 /data/devops-ci/index.json
 /data/tools/devops-cli
 /usr/local/bin/devops-cli
 ```
 
 `scripts/init-mise-layout.sh` creates `/data/mise`, copies manifests, writes a manual profile snippet under `/data/mise/runtime-config/profile.sh`, and does not create `/etc/profile.d` files. Install scripts normalize permissions under managed roots to `0755` for directories/executables and `0644` for ordinary files.
+
+`scripts/install-node-runtime.sh lts` installs `node@lts` under `/data/mise/node/data` and writes the selected executable path to `/data/mise/runtime-config/devops-cli-node.path`. Pass that path to `scripts/install-devops-ci-cli.sh --node` when installing the Jenkins agent CLI wrapper.
 
 `scripts/generate-toolchain-index.sh` validates installed Java/Maven/Gradle tools, then writes `/data/devops-ci/index.json`. The generated index maps public keys such as `jdk: "21"` to actual tool homes.
 
@@ -126,6 +129,30 @@ There are two distribution shapes:
 
 - User npm package: a trimmed CLI package for developers to create, validate, print, and resolve toolchain files. Registry configuration is supplied by `.npmrc`, CI, or command-line flags, not committed package metadata.
 - Jenkins/platform tarball: scripts, config, docs, Docker templates, Jenkins snippet, optional CLI tarball, and optional `mise` binary resource.
+
+In the extracted platform tarball, optional ancillary artifacts live under:
+
+```text
+artifacts/cli/<devops-ci-agent-tarball>
+artifacts/mise/<mise-binary>
+```
+
+A typical Jenkins node bootstrap sequence is:
+
+```bash
+sudo scripts/install-mise.sh --binary artifacts/mise/mise --target /usr/local/bin/mise
+sudo scripts/init-mise-layout.sh --root /data/mise
+sudo scripts/install-node-runtime.sh --root /data/mise lts
+sudo scripts/install-devops-ci-cli.sh \
+  --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
+  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --prefix /data/tools/devops-cli \
+  --index /data/devops-ci/index.json \
+  --link /usr/local/bin/devops-cli
+sudo scripts/install-java-tools.sh --root /data/mise 11
+sudo scripts/install-maven-tools.sh --root /data/mise 3
+sudo scripts/generate-toolchain-index.sh --root /data/mise --ci-root /data/devops-ci
+```
 
 Root packaging is driven by `Makefile`:
 

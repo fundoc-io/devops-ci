@@ -1,6 +1,10 @@
-# mise Java Toolchain
+# mise Host Toolchain
 
-Java, Maven, and Gradle are prepared on Jenkins slaves with `mise`. Normal Jenkins builds consume the generated index and do not install tools.
+Host Node.js, Java, Maven, and Gradle are prepared on Jenkins slaves with `mise`.
+
+The host Node.js runtime is only for platform tools such as the `devops-cli` wrapper. Project Node.js builds run inside Docker runner images selected by `.ci/toolchain.json`.
+
+Normal Java builds consume the generated index and do not install tools.
 
 ## Fixed Paths
 
@@ -18,6 +22,10 @@ The current phase assumes a local `mise` binary package exists. `scripts/install
 /data/mise/
 ├── system-config/
 ├── runtime-config/
+├── node/
+│   ├── data/
+│   ├── cache/
+│   └── tmp/
 ├── java/
 │   ├── data/
 │   ├── cache/
@@ -41,15 +49,68 @@ It also writes a `.devops-mise-root` marker. Install and permission-normalizatio
 
 ## Installation
 
-```bash
-sudo scripts/install-mise.sh --binary /path/to/mise --target /usr/local/bin/mise
-sudo scripts/init-mise-layout.sh
-sudo scripts/install-java-tools.sh
-sudo scripts/install-maven-tools.sh
-sudo scripts/install-gradle-tools.sh
+From an extracted platform package, ancillary artifacts use this layout:
+
+```text
+artifacts/cli/<devops-ci-agent-tarball>
+artifacts/mise/<mise-binary>
 ```
 
+Recommended Jenkins node bootstrap order:
+
+```bash
+cd /data/packages/devops-ci/devops-ci-platform-0.1.0
+
+sudo scripts/install-mise.sh \
+  --binary artifacts/mise/mise \
+  --target /usr/local/bin/mise
+
+sudo scripts/init-mise-layout.sh --root /data/mise
+
+# Runtime used by /usr/local/bin/devops-cli, not by project Node builds.
+sudo scripts/install-node-runtime.sh --root /data/mise lts
+
+sudo scripts/install-devops-ci-cli.sh \
+  --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
+  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --prefix /data/tools/devops-cli \
+  --index /data/devops-ci/index.json \
+  --link /usr/local/bin/devops-cli
+
+# Install only the Java/Maven/Gradle keys required by this Jenkins node.
+sudo scripts/install-java-tools.sh --root /data/mise 11
+sudo scripts/install-maven-tools.sh --root /data/mise 3
+
+sudo scripts/generate-toolchain-index.sh \
+  --root /data/mise \
+  --ci-root /data/devops-ci
+```
+
+If the platform package was built without `artifacts/mise/mise` or `artifacts/cli/<tarball>`, copy those files to the Jenkins node separately and pass their actual paths to the install scripts.
+
 Each tool family uses its own `MISE_DATA_DIR`, `MISE_CACHE_DIR`, and `MISE_TMP_DIR` under `/data/mise/<tool>/`.
+
+## Host Node Runtime
+
+Install the shared Node.js runtime used by the `devops-cli` wrapper:
+
+```bash
+sudo scripts/install-node-runtime.sh --root /data/mise lts
+cat /data/mise/runtime-config/devops-cli-node.path
+```
+
+Then pass that executable to the CLI installer:
+
+```bash
+sudo scripts/install-devops-ci-cli.sh \
+  --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
+  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --prefix /data/tools/devops-cli \
+  --index /data/devops-ci/index.json \
+  --link /usr/local/bin/devops-cli
+```
+
+This Node.js runtime should not be used to build application Node.js projects. Those builds remain Docker-based.
 
 Manifest `name` values are public keys. Install scripts resolve explicit arguments through the manifest, so `scripts/install-java-tools.sh 21` installs `java@temurin-21`, and `scripts/install-maven-tools.sh 3` installs `maven@3.9.6`.
 
@@ -68,6 +129,7 @@ The normal Jenkins build user should only read and execute these files.
 The selected `mise` root is the `--root` argument, or `MISE_ROOT`, defaulting to `/data/mise`. During installation each tool family gets an isolated data directory:
 
 ```text
+<MISE_ROOT>/node/data
 <MISE_ROOT>/java/data
 <MISE_ROOT>/maven/data
 <MISE_ROOT>/gradle/data

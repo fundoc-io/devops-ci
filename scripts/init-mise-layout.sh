@@ -12,7 +12,8 @@ Usage:
     [--ci-root /data/devops-ci] \
     [--index /data/devops-ci/index.json]
 
-Initializes the fixed mise directory layout for Java, Maven, and Gradle.
+Initializes the fixed mise directory layout for host Node.js, Java, Maven,
+and Gradle.
 It writes a manual profile snippet under /data/mise/runtime-config/profile.sh
 but does not create /etc/profile.d files.
 EOF
@@ -60,6 +61,7 @@ mark_mise_root "$MISE_ROOT"
 mkdir -p \
   "${MISE_ROOT}/system-config" \
   "${MISE_ROOT}/runtime-config" \
+  "${MISE_ROOT}/node/data" "${MISE_ROOT}/node/cache" "${MISE_ROOT}/node/tmp" \
   "${MISE_ROOT}/java/data" "${MISE_ROOT}/java/cache" "${MISE_ROOT}/java/tmp" \
   "${MISE_ROOT}/maven/data" "${MISE_ROOT}/maven/cache" "${MISE_ROOT}/maven/tmp" \
   "${MISE_ROOT}/gradle/data" "${MISE_ROOT}/gradle/cache" "${MISE_ROOT}/gradle/tmp" \
@@ -70,7 +72,6 @@ mkdir -p \
 cat > "${MISE_ROOT}/system-config/config.toml" <<'EOF'
 [settings]
 yes = true
-disable_tools = ["node"]
 EOF
 
 cat > "${MISE_ROOT}/runtime-config/config.toml" <<EOF
@@ -90,12 +91,13 @@ export MISE_BIN="${MISE_BIN}"
 export PATH="/usr/local/bin:\$PATH"
 EOF
 
-for manifest in java.json maven.json gradle.json; do
+for manifest in node.json java.json maven.json gradle.json; do
   cp "${REPO_ROOT}/config/mise/manifests/${manifest}" "${MISE_ROOT}/manifests/${manifest}"
 done
 
 mkdir -p "${MISE_ROOT}/scripts/lib"
 for script in \
+  install-node-runtime.sh \
   install-java-tools.sh \
   install-maven-tools.sh \
   install-gradle-tools.sh \

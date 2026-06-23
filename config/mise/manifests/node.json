@@ -1,0 +1,16 @@
+{
+  "node": [
+    {
+      "name": "lts",
+      "version": "lts"
+    },
+    {
+      "name": "20",
+      "version": "20"
+    },
+    {
+      "name": "22",
+      "version": "22"
+    }
+  ]
+}

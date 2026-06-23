@@ -11,7 +11,7 @@ English documentation: [README.md](README.md).
 - `.ci/toolchain.json`：项目侧工具链声明，支持 Node.js 和 Java 场景。
 - `devops-cli`：用于生成、校验、打印和解析工具链声明的 TypeScript CLI。
 - Node Docker Runner：按 Node 大版本选择 Docker 镜像执行构建。
-- Java 宿主机工具脚本：基于 `mise` 制备 Jenkins 节点上的 JDK、Maven、Gradle。
+- 宿主机工具脚本：基于 `mise` 制备共享的 `devops-cli` Node.js runtime，以及 Jenkins 节点上的 JDK、Maven、Gradle。
 - Jenkins 复制片段：适用于普通 `Pipeline script from SCM` 的 Groovy helper。
 - 分发打包：通过 Makefile 和脚本产出 CLI tarball 与平台 tarball。
 
@@ -130,22 +130,64 @@ devopsCi.nodeDockerBuild(
 
 ## Jenkins Agent CLI Tarball
 
-构建并安装 agent CLI：
+从源码构建 agent CLI：
 
 ```bash
 cd tools/devops-toolchain-cli
 pnpm run build:agent-tarball
+```
 
-cd ../..
-scripts/install-devops-ci-cli.sh \
-  --tarball tools/devops-toolchain-cli/dist/artifacts/devops-ci-agent-linux-x64-0.1.0.tar.gz \
+通过 `make dist` 分发时，平台 tarball 内的附属产物路径是：
+
+```text
+artifacts/cli/<devops-ci-agent-tarball>
+artifacts/mise/<mise-binary>
+```
+
+在解压后的平台包目录中安装：
+
+```bash
+cd /data/packages/devops-ci/devops-ci-platform-0.1.0
+
+sudo scripts/install-mise.sh \
+  --binary artifacts/mise/mise \
+  --target /usr/local/bin/mise
+
+sudo scripts/init-mise-layout.sh --root /data/mise
+sudo scripts/install-node-runtime.sh --root /data/mise lts
+
+sudo scripts/install-devops-ci-cli.sh \
+  --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
+  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --prefix /data/tools/devops-cli \
+  --index /data/devops-ci/index.json \
+  --link /usr/local/bin/devops-cli
+```
+
+如果平台包构建时没有带 `mise` 二进制或 CLI tarball，就把 `artifacts/mise/...` 或 `artifacts/cli/...` 替换成复制到该 Jenkins 节点上的外部文件路径。
+
+安装脚本会生成 wrapper，记录 index 路径，并使用安装时指定的 Node 二进制。这个宿主机 Node 只给平台工具使用；业务 Node.js 构建仍然走 Docker runner 镜像。
+
+如果已经有合适的 Node.js 可执行文件，可以跳过 `install-node-runtime.sh`，直接传入：
+
+```bash
+sudo scripts/install-devops-ci-cli.sh \
+  --tarball /path/to/devops-ci-agent-linux-x64-0.1.0.tar.gz \
   --node /path/to/node \
   --prefix /data/tools/devops-cli \
   --index /data/devops-ci/index.json \
   --link /usr/local/bin/devops-cli
 ```
 
-安装脚本会生成 wrapper，记录 index 路径，并使用安装时指定的 Node 二进制。
+Java 构建需要安装对应宿主机工具并重新生成平台 index：
+
+```bash
+sudo scripts/install-java-tools.sh --root /data/mise 11
+sudo scripts/install-maven-tools.sh --root /data/mise 3
+sudo scripts/generate-toolchain-index.sh \
+  --root /data/mise \
+  --ci-root /data/devops-ci
+```
 
 ## 平台打包
 

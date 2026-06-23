@@ -11,7 +11,7 @@ CI toolchain preparation for Jenkins-based DevOps environments.
 - `.ci/toolchain.json`: a project-level declaration for Node.js or Java build toolchains.
 - `devops-cli`: a TypeScript CLI for creating, validating, printing, and resolving toolchain declarations.
 - Node Docker Runner: a Dockerfile template and entrypoint for Node.js builds selected by Node major version.
-- Java host tooling scripts: `mise`-based setup scripts for JDK, Maven, and Gradle on Jenkins nodes.
+- Host tooling scripts: `mise`-based setup scripts for the shared `devops-cli` Node.js runtime plus JDK, Maven, and Gradle on Jenkins nodes.
 - Jenkins helper snippet: a copy-paste Groovy helper for ordinary `Pipeline script from SCM` jobs.
 - Distribution packaging: Makefile targets and scripts for building CLI and platform tarballs.
 
@@ -130,22 +130,64 @@ devopsCi.nodeDockerBuild(
 
 ## Jenkins Agent CLI Tarball
 
-Build and install a self-contained agent CLI bundle:
+Build a self-contained agent CLI bundle from source:
 
 ```bash
 cd tools/devops-toolchain-cli
 pnpm run build:agent-tarball
+```
 
-cd ../..
-scripts/install-devops-ci-cli.sh \
-  --tarball tools/devops-toolchain-cli/dist/artifacts/devops-ci-agent-linux-x64-0.1.0.tar.gz \
+When distributed through `make dist`, the platform tarball stores ancillary artifacts under:
+
+```text
+artifacts/cli/<devops-ci-agent-tarball>
+artifacts/mise/<mise-binary>
+```
+
+Install from an extracted platform package:
+
+```bash
+cd /data/packages/devops-ci/devops-ci-platform-0.1.0
+
+sudo scripts/install-mise.sh \
+  --binary artifacts/mise/mise \
+  --target /usr/local/bin/mise
+
+sudo scripts/init-mise-layout.sh --root /data/mise
+sudo scripts/install-node-runtime.sh --root /data/mise lts
+
+sudo scripts/install-devops-ci-cli.sh \
+  --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
+  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --prefix /data/tools/devops-cli \
+  --index /data/devops-ci/index.json \
+  --link /usr/local/bin/devops-cli
+```
+
+If the platform package was built without a `mise` binary or CLI tarball, replace the `artifacts/mise/...` or `artifacts/cli/...` paths with the external files copied to that Jenkins node.
+
+The generated wrapper records the configured index path and uses the explicit Node binary path supplied during installation. This host Node.js is only for platform tooling. Project Node.js builds still run in Docker runner images.
+
+If you already have a suitable Node.js executable, you can skip `install-node-runtime.sh` and pass it directly:
+
+```bash
+sudo scripts/install-devops-ci-cli.sh \
+  --tarball /path/to/devops-ci-agent-linux-x64-0.1.0.tar.gz \
   --node /path/to/node \
   --prefix /data/tools/devops-cli \
   --index /data/devops-ci/index.json \
   --link /usr/local/bin/devops-cli
 ```
 
-The generated wrapper records the configured index path and uses the explicit Node binary path supplied during installation.
+For Java builds, install the required host tools and regenerate the platform index:
+
+```bash
+sudo scripts/install-java-tools.sh --root /data/mise 11
+sudo scripts/install-maven-tools.sh --root /data/mise 3
+sudo scripts/generate-toolchain-index.sh \
+  --root /data/mise \
+  --ci-root /data/devops-ci
+```
 
 ## Platform Package
 

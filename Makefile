@@ -33,7 +33,7 @@ platform-package:
 	if [ -f "$(MISE_BINARY)" ]; then \
 	  args="$$args --mise-binary $(MISE_BINARY)"; \
 	fi; \
-	scripts/package-devops-ci-platform.sh $$args
+		bash scripts/package-devops-ci-platform.sh $$args
 
 dist: cli-agent-tarball platform-package
 
