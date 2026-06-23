@@ -1,0 +1,20 @@
+{
+  "java": [
+    {
+      "name": "8",
+      "version": "temurin-8"
+    },
+    {
+      "name": "11",
+      "version": "temurin-11"
+    },
+    {
+      "name": "17",
+      "version": "temurin-17"
+    },
+    {
+      "name": "21",
+      "version": "temurin-21"
+    }
+  ]
+}

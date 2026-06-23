@@ -1,0 +1,42 @@
+{
+  "name": "@devops/devops-toolchain-cli",
+  "version": "0.1.0",
+  "private": false,
+  "description": "CLI for generating and validating .ci/toolchain.json declarations.",
+  "packageManager": "pnpm@11.0.7",
+  "main": "./dist/user/index.js",
+  "bin": {
+    "devops-cli": "./dist/user/index.js"
+  },
+  "files": [
+    "dist/user/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "bundle:user": "ncc build src/user-cli.ts -o dist/user --target es2018",
+    "build:user-package": "pnpm run build && pnpm run bundle:user",
+    "bundle:agent": "ncc build src/agent-cli.ts -o dist/agent --target es2018",
+    "package:agent-tarball": "node scripts/package-agent-tarball.mjs",
+    "build:agent-tarball": "pnpm run build && pnpm run bundle:agent && pnpm run package:agent-tarball",
+    "pack:npm": "pnpm run build:user-package && pnpm pack",
+    "publish:npm": "pnpm run build:user-package && pnpm publish",
+    "typecheck": "tsc -p tsconfig.json",
+    "validate": "pnpm run typecheck"
+  },
+  "engines": {
+    "node": ">=12.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/prompts": "^2.4.9",
+    "@types/semver": "^7.7.1",
+    "@vercel/ncc": "^0.44.0",
+    "cac": "^6.7.14",
+    "picocolors": "^1.1.1",
+    "prompts": "^2.4.2",
+    "semver": "^7.8.5",
+    "tar": "^7.5.16",
+    "typescript": "^5.7.2"
+  }
+}

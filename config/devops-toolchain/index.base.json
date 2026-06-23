@@ -1,0 +1,16 @@
+{
+  "nodeImages": {
+    "12": "devops-ci/node12:202606",
+    "14": "devops-ci/node14:202606",
+    "16": "devops-ci/node16:202606",
+    "18": "devops-ci/node18:202606",
+    "20": "devops-ci/node20:202606",
+    "22": "devops-ci/node22:202606",
+    "24": "devops-ci/node24:202606"
+  },
+  "java": {
+    "jdks": {},
+    "maven": {},
+    "gradle": {}
+  }
+}

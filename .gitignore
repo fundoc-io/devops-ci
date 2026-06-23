@@ -1,0 +1,90 @@
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor and IDE metadata
+.idea/
+.idea_modules/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.code-workspace
+
+# Local environment and runtime files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary files and caches
+.ci-runtime/
+.tmp/
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.swp
+.swo
+tmp/
+temp/
+
+# Node.js outputs
+node_modules/
+dist/
+coverage/
+.nyc_output/
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# Java build outputs
+target/
+build/
+.gradle/
+out/
+
+# Generated packages and archives
+*.tgz
+*.tar.gz
+*.tar
+*.zip
+*.gz
+*.bz2
+*.xz
+*.7z
+dist/
+
+# Locally supplied binary resources
+resources/mise/*
+!resources/mise/.gitkeep
+
+# Binary/runtime payloads should be distributed as external artifacts.
+*.bin
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Local certificates and private keys
+*.key
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+docker/node-runner/certs/*
+!docker/node-runner/certs/.gitkeep
