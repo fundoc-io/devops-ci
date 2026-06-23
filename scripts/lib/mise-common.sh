@@ -3,6 +3,7 @@ set -euo pipefail
 
 MISE_BIN="${MISE_BIN:-/usr/local/bin/mise}"
 MISE_ROOT="${MISE_ROOT:-/data/mise}"
+DEVOPS_MISE_BIN="${DEVOPS_MISE_BIN:-/usr/local/bin/devops-mise}"
 DEVOPS_CI_ROOT="${DEVOPS_CI_ROOT:-/data/devops-ci}"
 DEVOPS_CI_INDEX="${DEVOPS_CI_INDEX:-${DEVOPS_CI_ROOT}/index.json}"
 DEVOPS_MISE_MARKER=".devops-mise-root"
@@ -29,6 +30,22 @@ ensure_command() {
 
 ensure_mise() {
   [[ -x "$MISE_BIN" ]] || die "mise binary not found or not executable: $MISE_BIN"
+}
+
+ensure_devops_mise() {
+  [[ -x "$DEVOPS_MISE_BIN" ]] || die "devops-mise wrapper not found or not executable: $DEVOPS_MISE_BIN"
+}
+
+mise_env_file() {
+  printf '%s/mise-env.sh' "$MISE_ROOT"
+}
+
+load_mise_env() {
+  local env_file
+  env_file="$(mise_env_file)"
+  [[ -f "$env_file" ]] || die "mise env file not found: $env_file; run init-mise-layout.sh first"
+  # shellcheck disable=SC1090
+  source "$env_file"
 }
 
 resolve_path_maybe_missing() {
@@ -80,21 +97,6 @@ repo_root_from_script() {
   local script_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"
   cd "${script_dir}/../.." && pwd
-}
-
-tool_data_dir() {
-  local tool="$1"
-  printf '%s/%s/data' "$MISE_ROOT" "$tool"
-}
-
-tool_cache_dir() {
-  local tool="$1"
-  printf '%s/%s/cache' "$MISE_ROOT" "$tool"
-}
-
-tool_tmp_dir() {
-  local tool="$1"
-  printf '%s/%s/tmp' "$MISE_ROOT" "$tool"
 }
 
 mise_tool_install_dir() {
@@ -157,16 +159,6 @@ install_archive_into_mise_tool() {
   cp -a "${source_home}/." "$target/"
   chmod 0755 "$executable" 2>/dev/null || true
   rm -rf "$tmp_dir"
-}
-
-export_mise_env_for_tool() {
-  local tool="$1"
-  export MISE_DATA_DIR
-  export MISE_CACHE_DIR
-  export MISE_TMP_DIR
-  MISE_DATA_DIR="$(tool_data_dir "$tool")"
-  MISE_CACHE_DIR="$(tool_cache_dir "$tool")"
-  MISE_TMP_DIR="$(tool_tmp_dir "$tool")"
 }
 
 manifest_versions() {

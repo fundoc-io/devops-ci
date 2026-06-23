@@ -15,17 +15,24 @@ Usage:
     [key-or-version...]
 
 Installs Java versions with:
-  MISE_DATA_DIR=/data/mise/java/data
-  MISE_CACHE_DIR=/data/mise/java/cache
-  MISE_TMP_DIR=/data/mise/java/tmp
+  MISE_DATA_DIR=/data/mise/data
+  MISE_CONFIG_DIR=/data/mise/config
+  MISE_CACHE_DIR=/data/mise/cache
+  MISE_STATE_DIR=/data/mise/state
+  MISE_TMP_DIR=/data/mise/tmp
   mise install java@<version>
 
 When --archive is provided, the script does not download through mise. It
 extracts one local JDK archive into:
-  /data/mise/java/data/installs/java/<manifest-version>
+  /data/mise/data/installs/java/<manifest-version>
 
 Example:
   scripts/install-java-tools.sh --archive /data/packages/jdk-11.tar.gz 11
+
+For manual maintenance, source /data/mise/mise-env.sh and use mise directly:
+  source /data/mise/mise-env.sh
+  mise install java@<version>
+  mise where java@<version>
 EOF
 }
 
@@ -75,8 +82,8 @@ else
   mapfile -t versions < <(manifest_resolved_versions "$manifest" "java" "${versions[@]}")
 fi
 
-export_mise_env_for_tool "java"
-mkdir -p "$MISE_DATA_DIR" "$MISE_CACHE_DIR" "$MISE_TMP_DIR"
+load_mise_env
+mkdir -p "$MISE_DATA_DIR" "$MISE_CONFIG_DIR" "$MISE_CACHE_DIR" "$MISE_STATE_DIR" "$MISE_TMP_DIR"
 
 install_java_archive() {
   local version="$1"

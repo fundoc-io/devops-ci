@@ -45,10 +45,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 manifest_dir="${manifest_dir:-${MISE_ROOT}/manifests}"
+load_mise_env
 
 validate_java() {
   local version="$1"
-  local java_home="${MISE_ROOT}/java/data/installs/java/${version}"
+  local java_home="${MISE_DATA_DIR}/installs/java/${version}"
   if [[ ! -x "${java_home}/bin/java" ]]; then
     if [[ "$strict" == "1" ]]; then
       die "java binary not found: ${java_home}/bin/java"
@@ -62,7 +63,7 @@ validate_java() {
 
 validate_maven() {
   local version="$1"
-  local maven_home="${MISE_ROOT}/maven/data/installs/maven/${version}"
+  local maven_home="${MISE_DATA_DIR}/installs/maven/${version}"
   if [[ ! -x "${maven_home}/bin/mvn" ]]; then
     if [[ "$strict" == "1" ]]; then
       die "mvn binary not found: ${maven_home}/bin/mvn"
@@ -76,7 +77,7 @@ validate_maven() {
 
 validate_gradle() {
   local version="$1"
-  local gradle_home="${MISE_ROOT}/gradle/data/installs/gradle/${version}"
+  local gradle_home="${MISE_DATA_DIR}/installs/gradle/${version}"
   if [[ ! -x "${gradle_home}/bin/gradle" ]]; then
     if [[ "$strict" == "1" ]]; then
       die "gradle binary not found: ${gradle_home}/bin/gradle"

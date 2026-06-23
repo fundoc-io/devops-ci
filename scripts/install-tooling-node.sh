@@ -7,10 +7,10 @@ source "${SCRIPT_DIR}/lib/mise-common.sh"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/install-node-runtime.sh \
+  scripts/install-tooling-node.sh \
     [--root /data/mise] \
-    [--manifest /data/mise/manifests/node.json] \
-    [--node-path-file /data/mise/runtime-config/devops-cli-node.path] \
+    [--manifest /data/mise/manifests/tooling-node.json] \
+    [--node-path-file /data/mise/devops-cli-node.path] \
     [--archive /path/to/node.tar.gz] \
     [--force] \
     [key-or-version...]
@@ -23,11 +23,16 @@ Default install key:
   lts
 
 The installed executable path is written to:
-  /data/mise/runtime-config/devops-cli-node.path
+  /data/mise/devops-cli-node.path
 
 When --archive is provided, the script does not download through mise. It
 extracts one local Node.js archive into:
-  /data/mise/node/data/installs/node/<manifest-version>
+  /data/mise/data/installs/node/<manifest-version>
+
+For manual maintenance, source /data/mise/mise-env.sh and use mise directly:
+  source /data/mise/mise-env.sh
+  mise install node@<version>
+  mise where node@<version>
 EOF
 }
 
@@ -75,8 +80,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 require_root
-manifest="${manifest:-${MISE_ROOT}/manifests/node.json}"
-node_path_file="${node_path_file:-${MISE_ROOT}/runtime-config/devops-cli-node.path}"
+manifest="${manifest:-${MISE_ROOT}/manifests/tooling-node.json}"
+node_path_file="${node_path_file:-${MISE_ROOT}/devops-cli-node.path}"
 
 if [[ "${#versions[@]}" -eq 0 ]]; then
   versions=("lts")
@@ -88,8 +93,8 @@ if [[ -n "$archive" && "${#resolved_versions[@]}" -ne 1 ]]; then
   die "--archive installs exactly one Node.js version; pass one key such as lts or 20"
 fi
 
-export_mise_env_for_tool "node"
-mkdir -p "$MISE_DATA_DIR" "$MISE_CACHE_DIR" "$MISE_TMP_DIR" "$(dirname "$node_path_file")"
+load_mise_env
+mkdir -p "$MISE_DATA_DIR" "$MISE_CONFIG_DIR" "$MISE_CACHE_DIR" "$MISE_STATE_DIR" "$MISE_TMP_DIR" "$(dirname "$node_path_file")"
 
 runtime_node_path=""
 for version in "${resolved_versions[@]}"; do

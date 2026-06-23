@@ -104,22 +104,36 @@ Groovy does not read `/data/devops-ci/index.json` or maintain version allowlists
 
 ## Mise Layout
 
-`mise` is used for host preparation. The host Node.js runtime installed by `scripts/install-node-runtime.sh` is only for platform tools such as `devops-cli`; project Node.js builds still run in Docker.
+`mise` is used for host preparation. The host Node.js runtime installed by `scripts/install-tooling-node.sh` is only for platform tools such as `devops-cli`; project Node.js builds still run in Docker.
 
 Default paths:
 
 ```text
 /usr/local/bin/mise
+/usr/local/bin/devops-mise
 /data/mise
-/data/mise/runtime-config/devops-cli-node.path
+/data/mise/mise-env.sh
+/data/mise/devops-cli-node.path
 /data/devops-ci/index.json
 /data/tools/devops-cli
 /usr/local/bin/devops-cli
 ```
 
-`scripts/init-mise-layout.sh` creates `/data/mise`, copies manifests, writes a manual profile snippet under `/data/mise/runtime-config/profile.sh`, and does not create `/etc/profile.d` files. Install scripts normalize permissions under managed roots to `0755` for directories/executables and `0644` for ordinary files.
+`scripts/init-mise-layout.sh` creates `/data/mise`, writes `/data/mise/mise-env.sh`, creates `/usr/local/bin/devops-mise`, copies manifests, and does not create `/etc/profile.d` files. Install scripts normalize permissions under managed roots to `0755` for directories/executables and `0644` for ordinary files.
 
-`scripts/install-node-runtime.sh lts` installs `node@lts` under `/data/mise/node/data` and writes the selected executable path to `/data/mise/runtime-config/devops-cli-node.path`. Pass that path to `scripts/install-devops-ci-cli.sh --node` when installing the Jenkins agent CLI wrapper.
+If `/data/devops-ci/index.json` does not exist, layout initialization copies the base index there so `devops-cli resolve` can immediately resolve Node Docker builds. Java entries are generated after Java/Maven/Gradle installation.
+
+For manual maintenance, source `/data/mise/mise-env.sh` and use `mise` directly:
+
+```bash
+source /data/mise/mise-env.sh
+mise where java@temurin-21
+mise use -g java@temurin-21 maven@3.9.6
+```
+
+`devops-mise` is only a convenience wrapper around that same environment. Jenkins business builds should keep using `devops-cli resolve` and the generated `/data/devops-ci/index.json`, not a shell-activated mise environment.
+
+`scripts/install-tooling-node.sh lts` installs host/platform Node through the shared mise data root under `/data/mise/data/installs/node`, and writes the selected executable path to `/data/mise/devops-cli-node.path`. Pass that path to `scripts/install-devops-ci-cli.sh --node` when installing the Jenkins agent CLI wrapper.
 
 `scripts/generate-toolchain-index.sh` validates installed Java/Maven/Gradle tools, then writes `/data/devops-ci/index.json`. The generated index maps public keys such as `jdk: "21"` to actual tool homes. Missing manifest entries are skipped by default; pass `--strict` only when the node must contain every manifest entry.
 
@@ -142,10 +156,10 @@ A typical Jenkins node bootstrap sequence is:
 ```bash
 sudo scripts/install-mise.sh --binary artifacts/mise/mise --target /usr/local/bin/mise
 sudo scripts/init-mise-layout.sh --root /data/mise
-sudo scripts/install-node-runtime.sh --root /data/mise lts
+sudo scripts/install-tooling-node.sh --root /data/mise lts
 sudo scripts/install-devops-ci-cli.sh \
   --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
-  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --node "$(cat /data/mise/devops-cli-node.path)" \
   --prefix /data/tools/devops-cli \
   --index /data/devops-ci/index.json \
   --link /usr/local/bin/devops-cli

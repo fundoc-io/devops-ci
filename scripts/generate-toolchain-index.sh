@@ -25,6 +25,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 manifest_dir=""
 base_file="${REPO_ROOT}/config/devops-toolchain/index.base.json"
 output_file=""
+ci_root_arg=""
 strict=0
 
 while [[ $# -gt 0 ]]; do
@@ -41,6 +42,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --ci-root)
       [[ $# -ge 2 ]] || die "$1 requires a value"
+      ci_root_arg="$2"
       DEVOPS_CI_ROOT="$2"
       DEVOPS_CI_INDEX="${DEVOPS_CI_ROOT}/index.json"
       shift 2
@@ -70,6 +72,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 manifest_dir="${manifest_dir:-${MISE_ROOT}/manifests}"
+load_mise_env
+if [[ -n "$ci_root_arg" ]]; then
+  DEVOPS_CI_ROOT="$ci_root_arg"
+  DEVOPS_CI_INDEX="${DEVOPS_CI_ROOT}/index.json"
+fi
 output_file="${output_file:-${DEVOPS_CI_INDEX}}"
 
 ensure_command python3
@@ -79,13 +86,13 @@ ensure_command python3
 mkdir -p "$(dirname "$output_file")"
 tmp_file="$(mktemp "${output_file}.tmp.XXXXXX")"
 
-python3 - "$MISE_ROOT" "$manifest_dir" "$base_file" "$tmp_file" "$strict" <<'PY'
+python3 - "$MISE_DATA_DIR" "$manifest_dir" "$base_file" "$tmp_file" "$strict" <<'PY'
 import json
 import os
 import subprocess
 import sys
 
-mise_root, manifest_dir, base_file, output_file, strict_raw = sys.argv[1:6]
+mise_data_dir, manifest_dir, base_file, output_file, strict_raw = sys.argv[1:6]
 strict = strict_raw == "1"
 
 def load_json(path):
@@ -136,7 +143,7 @@ gradle_manifest = load_json(os.path.join(manifest_dir, "gradle.json"))
 for item in java_manifest.get("java", []):
     name = item["name"]
     version = item["version"]
-    java_home = os.path.join(mise_root, "java", "data", "installs", "java", version)
+    java_home = os.path.join(mise_data_dir, "installs", "java", version)
     java_bin = os.path.join(java_home, "bin", "java")
     if include_or_skip("java", name, java_bin, [java_bin, "-version"]):
         index["java"]["jdks"][name] = {"JAVA_HOME": java_home}
@@ -144,7 +151,7 @@ for item in java_manifest.get("java", []):
 for item in maven_manifest.get("maven", []):
     name = item["name"]
     version = item["version"]
-    maven_home = os.path.join(mise_root, "maven", "data", "installs", "maven", version)
+    maven_home = os.path.join(mise_data_dir, "installs", "maven", version)
     mvn_bin = os.path.join(maven_home, "bin", "mvn")
     if include_or_skip("maven", name, mvn_bin, [mvn_bin, "-v"]):
         index["java"]["maven"][name] = {"MAVEN_HOME": maven_home}
@@ -152,7 +159,7 @@ for item in maven_manifest.get("maven", []):
 for item in gradle_manifest.get("gradle", []):
     name = item["name"]
     version = item["version"]
-    gradle_home = os.path.join(mise_root, "gradle", "data", "installs", "gradle", version)
+    gradle_home = os.path.join(mise_data_dir, "installs", "gradle", version)
     gradle_bin = os.path.join(gradle_home, "bin", "gradle")
     if include_or_skip("gradle", name, gradle_bin, [gradle_bin, "-v"]):
         index["java"]["gradle"][name] = {"GRADLE_HOME": gradle_home}

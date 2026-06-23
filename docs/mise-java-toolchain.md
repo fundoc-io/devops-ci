@@ -1,16 +1,19 @@
 # mise Host Toolchain
 
-Host Node.js, Java, Maven, and Gradle are prepared on Jenkins slaves with `mise`.
+Host Node.js, Java, Maven, and Gradle are prepared on Jenkins nodes with `mise`.
 
 The host Node.js runtime is only for platform tools such as the `devops-cli` wrapper. Project Node.js builds run inside Docker runner images selected by `.ci/toolchain.json`.
 
-Normal Java builds consume the generated index and do not install tools.
+Normal Java builds consume the generated index and do not install tools during a business pipeline.
 
 ## Fixed Paths
 
 ```text
 /usr/local/bin/mise
+/usr/local/bin/devops-mise
 /data/mise
+/data/mise/mise-env.sh
+/data/mise/devops-cli-node.path
 /data/devops-ci/index.json
 ```
 
@@ -20,32 +23,62 @@ The current phase assumes a local `mise` binary package exists. `scripts/install
 
 ```text
 /data/mise/
-├── system-config/
-├── runtime-config/
-├── node/
-│   ├── data/
-│   ├── cache/
-│   └── tmp/
-├── java/
-│   ├── data/
-│   ├── cache/
-│   └── tmp/
-├── maven/
-│   ├── data/
-│   ├── cache/
-│   └── tmp/
-├── gradle/
-│   ├── data/
-│   ├── cache/
-│   └── tmp/
+├── .devops-mise-root
+├── mise-env.sh
+├── devops-cli-node.path
+├── data/
+│   └── installs/
+│       ├── java/
+│       ├── maven/
+│       ├── gradle/
+│       └── node/
+├── config/
+│   └── config.toml
+├── cache/
+├── state/
+├── tmp/
 ├── manifests/
-├── profiles/
+│   ├── java.json
+│   ├── maven.json
+│   ├── gradle.json
+│   └── tooling-node.json
 └── scripts/
 ```
 
-`scripts/init-mise-layout.sh` creates the layout, copies manifests, writes base config, and creates `/data/mise/runtime-config/profile.sh` for explicit maintenance sessions. It does not create `/etc/profile.d` files.
+`scripts/init-mise-layout.sh` creates the layout, copies manifests and maintenance scripts, writes `/data/mise/mise-env.sh`, and creates `/usr/local/bin/devops-mise`. It does not create `/etc/profile.d` files.
 
-It also writes a `.devops-mise-root` marker. Install and permission-normalization scripts require this marker before touching the root recursively.
+`/data/mise/data` is the single `MISE_DATA_DIR` for Java, Maven, Gradle, and the platform tooling Node.js runtime.
+
+The script also writes a `.devops-mise-root` marker. Install and permission-normalization scripts require this marker before touching the root recursively.
+
+If the configured index file does not exist, initialization copies the base index to `/data/devops-ci/index.json`. That gives `devops-cli resolve` enough data for Node Docker builds immediately. Java/Maven/Gradle entries are added later by `generate-toolchain-index.sh` after the host tools are installed.
+
+## Manual Mise Maintenance
+
+The scripts are automation entry points, not the only supported way to operate `mise`. For an interactive maintenance shell, load the base environment and use `mise` directly:
+
+```bash
+source /data/mise/mise-env.sh
+
+mise install java@temurin-21
+mise install maven@3.9.6
+mise install gradle@8.8
+mise install node@20
+
+mise where java@temurin-21
+mise where maven@3.9.6
+mise where gradle@8.8
+mise where node@20
+```
+
+`/usr/local/bin/devops-mise` is just a convenience wrapper that sources the same environment before executing `/usr/local/bin/mise`:
+
+```bash
+devops-mise where java@temurin-21
+devops-mise use -g java@temurin-21 maven@3.9.6
+```
+
+`mise use -g ...` writes to `/data/mise/config/config.toml` because `mise-env.sh` sets `MISE_GLOBAL_CONFIG_FILE`. The environment also prepends `/data/mise/data/shims` to `PATH`, so a maintenance shell can use mise shims after `mise use -g`. Jenkins business builds still consume `/data/devops-ci/index.json`; they should not depend on shell activation or shims.
 
 ## Installation
 
@@ -68,14 +101,18 @@ sudo scripts/install-mise.sh \
 sudo scripts/init-mise-layout.sh --root /data/mise
 
 # Runtime used by /usr/local/bin/devops-cli, not by project Node builds.
-sudo scripts/install-node-runtime.sh --root /data/mise lts
+sudo scripts/install-tooling-node.sh --root /data/mise lts
 
 sudo scripts/install-devops-ci-cli.sh \
   --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
-  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --node "$(cat /data/mise/devops-cli-node.path)" \
   --prefix /data/tools/devops-cli \
   --index /data/devops-ci/index.json \
   --link /usr/local/bin/devops-cli
+
+devops-cli resolve \
+  --file .ci/toolchain.json \
+  --project-dir .
 
 # Install only the Java/Maven/Gradle keys required by this Jenkins node.
 sudo scripts/install-java-tools.sh --root /data/mise 11
@@ -88,12 +125,12 @@ sudo scripts/generate-toolchain-index.sh \
 
 If the platform package was built without `artifacts/mise/mise` or `artifacts/cli/<tarball>`, copy those files to the Jenkins node separately and pass their actual paths to the install scripts.
 
-Each tool family uses its own `MISE_DATA_DIR`, `MISE_CACHE_DIR`, and `MISE_TMP_DIR` under `/data/mise/<tool>/`.
+## Offline Archives
 
-Tools can also be installed from local archives when Jenkins nodes cannot download through `mise`:
+Tools can be installed from local archives when Jenkins nodes cannot download through `mise`:
 
 ```bash
-sudo scripts/install-node-runtime.sh \
+sudo scripts/install-tooling-node.sh \
   --root /data/mise \
   --archive /data/packages/node/node-v20-linux-x64.tar.gz \
   20
@@ -123,13 +160,13 @@ Maven:   bin/mvn
 Gradle:  bin/gradle
 ```
 
-The scripts extract archives into the same managed locations that `mise install` would use:
+The scripts extract archives into the same managed locations that the platform index expects:
 
 ```text
-/data/mise/node/data/installs/node/20
-/data/mise/java/data/installs/java/temurin-11
-/data/mise/maven/data/installs/maven/3.9.6
-/data/mise/gradle/data/installs/gradle/8.8
+/data/mise/data/installs/node/20
+/data/mise/data/installs/java/temurin-11
+/data/mise/data/installs/maven/3.9.6
+/data/mise/data/installs/gradle/8.8
 ```
 
 `generate-toolchain-index.sh` does not need to know whether tools came from local archives or from `mise install`.
@@ -139,8 +176,8 @@ The scripts extract archives into the same managed locations that `mise install`
 Install the shared Node.js runtime used by the `devops-cli` wrapper:
 
 ```bash
-sudo scripts/install-node-runtime.sh --root /data/mise lts
-cat /data/mise/runtime-config/devops-cli-node.path
+sudo scripts/install-tooling-node.sh --root /data/mise lts
+cat /data/mise/devops-cli-node.path
 ```
 
 Then pass that executable to the CLI installer:
@@ -148,7 +185,7 @@ Then pass that executable to the CLI installer:
 ```bash
 sudo scripts/install-devops-ci-cli.sh \
   --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
-  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --node "$(cat /data/mise/devops-cli-node.path)" \
   --prefix /data/tools/devops-cli \
   --index /data/devops-ci/index.json \
   --link /usr/local/bin/devops-cli
@@ -156,7 +193,17 @@ sudo scripts/install-devops-ci-cli.sh \
 
 This Node.js runtime should not be used to build application Node.js projects. Those builds remain Docker-based.
 
-Manifest `name` values are public keys. Install scripts resolve explicit arguments through the manifest, so `scripts/install-java-tools.sh 21` installs `java@temurin-21`, and `scripts/install-maven-tools.sh 3` installs `maven@3.9.6`.
+## Manifest Keys
+
+Manifest `name` values are public keys. Install scripts resolve explicit arguments through the manifest:
+
+```text
+scripts/install-java-tools.sh 21 installs java@temurin-21
+scripts/install-maven-tools.sh 3 installs maven@3.9.6
+scripts/install-tooling-node.sh 20 installs node@20
+```
+
+The `tooling-node.json` manifest is only for the platform Node.js runtime used by `devops-cli`. Business Node.js versions are resolved from Docker runner images instead.
 
 After layout or tool installation, the scripts normalize `/data/mise` permissions:
 
@@ -170,29 +217,40 @@ The normal Jenkins build user should only read and execute these files.
 
 `mise` is only used during host preparation. Normal Jenkins builds do not run `mise install` or `mise exec`.
 
-The selected `mise` root is the `--root` argument, or `MISE_ROOT`, defaulting to `/data/mise`. During installation each tool family gets an isolated data directory:
+The selected `mise` root is the `--root` argument, or `MISE_ROOT`, defaulting to `/data/mise`. All tools share the same explicit mise environment:
 
-```text
-<MISE_ROOT>/node/data
-<MISE_ROOT>/java/data
-<MISE_ROOT>/maven/data
-<MISE_ROOT>/gradle/data
+```bash
+export MISE_DATA_DIR=/data/mise/data
+export MISE_CONFIG_DIR=/data/mise/config
+export MISE_CACHE_DIR=/data/mise/cache
+export MISE_STATE_DIR=/data/mise/state
+export MISE_TMP_DIR=/data/mise/tmp
+export MISE_GLOBAL_CONFIG_FILE=/data/mise/config/config.toml
+export PATH=/data/mise/data/shims:/usr/local/bin:$PATH
 ```
+
+`/usr/local/bin/devops-mise` sources `/data/mise/mise-env.sh` before executing `/usr/local/bin/mise`.
 
 `generate-toolchain-index.sh` turns installed manifest entries into concrete build-time homes. The manifest `name` is the public platform key used by `.ci/toolchain.json`; the manifest `version` is the actual `mise` install identifier:
 
 ```text
-"21" -> <MISE_ROOT>/java/data/installs/java/temurin-21 -> JAVA_HOME
-"3"  -> <MISE_ROOT>/maven/data/installs/maven/3.9.6    -> MAVEN_HOME
-<gradle key> -> <MISE_ROOT>/gradle/data/installs/gradle/<version> -> GRADLE_HOME
+"21" -> /data/mise/data/installs/java/temurin-21 -> JAVA_HOME
+"3"  -> /data/mise/data/installs/maven/3.9.6    -> MAVEN_HOME
+<gradle key> -> /data/mise/data/installs/gradle/<version> -> GRADLE_HOME
 ```
 
-Jenkins chooses the actual directory by reading `/data/devops-ci/index.json` or `DEVOPS_CI_INDEX`, then matching `.ci/toolchain.json` keys such as `jdk`, `maven`, or `gradle`. To use a different `mise` root, generate a different index:
+Jenkins chooses the actual directory by reading `/data/devops-ci/index.json` or `DEVOPS_CI_INDEX`, then matching `.ci/toolchain.json` keys such as `jdk`, `maven`, or `gradle`.
+
+To use a different `mise` root, initialize that root and generate a matching index:
 
 ```bash
+sudo scripts/init-mise-layout.sh \
+  --root /data/mise-prod \
+  --index /data/devops-ci-prod/index.json
+
 sudo scripts/generate-toolchain-index.sh \
   --root /data/mise-prod \
-  --ci-root /data/devops-ci
+  --ci-root /data/devops-ci-prod
 ```
 
 ## Validation and Index

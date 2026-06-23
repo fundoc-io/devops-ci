@@ -58,6 +58,19 @@ copy_required_path() {
   cp -a "$source" "$destination"
 }
 
+create_tarball() {
+  local artifact="$1"
+  local base_dir="$2"
+  local entry="$3"
+
+  if tar --help 2>/dev/null | grep -q -- '--owner'; then
+    tar --owner=0 --group=0 --numeric-owner -czf "$artifact" -C "$base_dir" "$entry"
+    return
+  fi
+
+  tar -czf "$artifact" -C "$base_dir" "$entry"
+}
+
 version="0.1.0"
 output_dir="dist/artifacts"
 cli_tarball=""
@@ -138,7 +151,6 @@ mise_artifact_name=""
 if [[ -n "$mise_binary" ]]; then
   mise_artifact_name="$(basename "$mise_binary")"
   cp "$mise_binary" "${package_root}/artifacts/mise/${mise_artifact_name}"
-  chmod 0755 "${package_root}/artifacts/mise/${mise_artifact_name}"
 fi
 
 cat > "${package_root}/VERSION" <<EOF
@@ -167,8 +179,13 @@ cat > "${package_root}/MANIFEST.json" <<EOF
 }
 EOF
 
+find "$package_root" -type d -exec chmod 0755 {} +
+find "$package_root" -type f -exec chmod 0644 {} +
 find "$package_root/scripts" -type f -name '*.sh' -exec chmod 0755 {} +
 find "$package_root/docker" -type f -name '*.sh' -exec chmod 0755 {} + 2>/dev/null || true
+if [[ -n "$mise_artifact_name" ]]; then
+  chmod 0755 "${package_root}/artifacts/mise/${mise_artifact_name}"
+fi
 
-tar -czf "$artifact_file" -C "$tmp_dir" "$package_name"
+create_tarball "$artifact_file" "$tmp_dir" "$package_name"
 echo "Wrote ${artifact_file}"

@@ -15,14 +15,21 @@ Usage:
     [key-or-version...]
 
 Installs Maven versions with:
-  MISE_DATA_DIR=/data/mise/maven/data
-  MISE_CACHE_DIR=/data/mise/maven/cache
-  MISE_TMP_DIR=/data/mise/maven/tmp
+  MISE_DATA_DIR=/data/mise/data
+  MISE_CONFIG_DIR=/data/mise/config
+  MISE_CACHE_DIR=/data/mise/cache
+  MISE_STATE_DIR=/data/mise/state
+  MISE_TMP_DIR=/data/mise/tmp
   mise install maven@<version>
 
 When --archive is provided, the script does not download through mise. It
 extracts one local Maven archive into:
-  /data/mise/maven/data/installs/maven/<manifest-version>
+  /data/mise/data/installs/maven/<manifest-version>
+
+For manual maintenance, source /data/mise/mise-env.sh and use mise directly:
+  source /data/mise/mise-env.sh
+  mise install maven@<version>
+  mise where maven@<version>
 EOF
 }
 
@@ -72,8 +79,8 @@ else
   mapfile -t versions < <(manifest_resolved_versions "$manifest" "maven" "${versions[@]}")
 fi
 
-export_mise_env_for_tool "maven"
-mkdir -p "$MISE_DATA_DIR" "$MISE_CACHE_DIR" "$MISE_TMP_DIR"
+load_mise_env
+mkdir -p "$MISE_DATA_DIR" "$MISE_CONFIG_DIR" "$MISE_CACHE_DIR" "$MISE_STATE_DIR" "$MISE_TMP_DIR"
 
 if [[ -n "$archive" && "${#versions[@]}" -ne 1 ]]; then
   die "--archive installs exactly one Maven version; pass one key such as 3"

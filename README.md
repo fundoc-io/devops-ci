@@ -154,11 +154,11 @@ sudo scripts/install-mise.sh \
   --target /usr/local/bin/mise
 
 sudo scripts/init-mise-layout.sh --root /data/mise
-sudo scripts/install-node-runtime.sh --root /data/mise lts
+sudo scripts/install-tooling-node.sh --root /data/mise lts
 
 sudo scripts/install-devops-ci-cli.sh \
   --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
-  --node "$(cat /data/mise/runtime-config/devops-cli-node.path)" \
+  --node "$(cat /data/mise/devops-cli-node.path)" \
   --prefix /data/tools/devops-cli \
   --index /data/devops-ci/index.json \
   --link /usr/local/bin/devops-cli
@@ -168,7 +168,7 @@ If the platform package was built without a `mise` binary or CLI tarball, replac
 
 The generated wrapper records the configured index path and uses the explicit Node binary path supplied during installation. This host Node.js is only for platform tooling. Project Node.js builds still run in Docker runner images.
 
-If you already have a suitable Node.js executable, you can skip `install-node-runtime.sh` and pass it directly:
+If you already have a suitable Node.js executable, you can skip `install-tooling-node.sh` and pass it directly:
 
 ```bash
 sudo scripts/install-devops-ci-cli.sh \
@@ -194,7 +194,7 @@ The generated index includes installed tools only. Missing manifest entries are 
 For offline installation, provide local archives instead of downloading through `mise`:
 
 ```bash
-sudo scripts/install-node-runtime.sh \
+sudo scripts/install-tooling-node.sh \
   --root /data/mise \
   --archive /data/packages/node/node-v20-linux-x64.tar.gz \
   20
