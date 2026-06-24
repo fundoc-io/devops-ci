@@ -20,6 +20,8 @@ npx @devops/devops-cli init
 
 The installed `devops-cli` runtime supports Node.js 12.22.0 or newer. It is published as a bundled CommonJS CLI with no runtime dependencies, so application projects do not install its CLI libraries separately. Source `devDependencies` are only for repository builds and platform artifact packaging; building this package from source follows the repository development toolchain and may require a newer Node.js version than the installed CLI runtime.
 
+The package name is `@devops/devops-cli`; the installed executable remains `devops-cli`.
+
 The package currently uses the `@devops` scope for private-registry isolation. If it is later published to a public npm registry, confirm scope ownership and naming policy before publishing.
 
 ## Commands

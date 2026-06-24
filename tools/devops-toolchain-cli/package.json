@@ -6,9 +6,10 @@
   "packageManager": "pnpm@11.0.7",
   "main": "./dist/user/index.js",
   "bin": {
-    "devops-cli": "./dist/user/index.js"
+    "devops-cli": "./bin/devops-cli.cjs"
   },
   "files": [
+    "bin/",
     "dist/user/",
     "README.md"
   ],
