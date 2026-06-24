@@ -1,4 +1,4 @@
-# @devops/devops-toolchain-cli
+# @devops/devops-cli
 
 User-side CLI for creating and validating `.ci/toolchain.json` declarations used by the `devops-ci` toolchain platform.
 
@@ -9,13 +9,13 @@ This npm package is intentionally small. It is for application developers who ne
 From a private registry:
 
 ```bash
-npm install -D @devops/devops-toolchain-cli
+npm install -D @devops/devops-cli
 ```
 
 or run it with your package manager's one-shot executor:
 
 ```bash
-npx @devops/devops-toolchain-cli init
+npx @devops/devops-cli init
 ```
 
 The installed `devops-cli` runtime supports Node.js 12.22.0 or newer. It is published as a bundled CommonJS CLI with no runtime dependencies, so application projects do not install its CLI libraries separately. Source `devDependencies` are only for repository builds and platform artifact packaging; building this package from source follows the repository development toolchain and may require a newer Node.js version than the installed CLI runtime.

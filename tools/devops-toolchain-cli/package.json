@@ -1,5 +1,5 @@
 {
-  "name": "@devops/devops-toolchain-cli",
+  "name": "@devops/devops-cli",
   "version": "0.1.0",
   "private": false,
   "description": "CLI for generating and validating .ci/toolchain.json declarations.",

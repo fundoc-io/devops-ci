@@ -1648,7 +1648,7 @@ CLI 只负责生成工具链声明，不负责生成任意 commands。
 ### 15.2 建议包名
 
 ```text
-@devops/devops-toolchain-cli
+@devops/devops-cli
 ```
 
 命令：
@@ -1662,7 +1662,7 @@ devops-cli print
 也可支持：
 
 ```bash
-npx @devops/devops-toolchain-cli init
+npx @devops/devops-cli init
 ```
 
 ### 15.3 技术选型
