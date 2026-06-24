@@ -8,6 +8,9 @@ Usage:
     --node 20 \
     --base node:20-bookworm-slim \
     --image devops-ci/node20:202606 \
+    [--apt-mirror https://mirrors.aliyun.com/debian] \
+    [--apt-security-mirror https://mirrors.aliyun.com/debian-security] \
+    [--apt-enable-backports] \
     [--ca-file /path/to/custom-ca.crt] \
     [--push] [--no-cache] [--keep-context]
 
@@ -25,6 +28,9 @@ node_major=""
 base_image=""
 image_tag=""
 ca_file=""
+apt_mirror=""
+apt_security_mirror=""
+apt_enable_backports=0
 push=0
 no_cache=0
 keep_context=0
@@ -50,6 +56,20 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || die "--ca-file requires a value"
       ca_file="$2"
       shift 2
+      ;;
+    --apt-mirror)
+      [[ $# -ge 2 ]] || die "--apt-mirror requires a value"
+      apt_mirror="$2"
+      shift 2
+      ;;
+    --apt-security-mirror)
+      [[ $# -ge 2 ]] || die "--apt-security-mirror requires a value"
+      apt_security_mirror="$2"
+      shift 2
+      ;;
+    --apt-enable-backports)
+      apt_enable_backports=1
+      shift
       ;;
     --push)
       push=1
@@ -109,6 +129,15 @@ if [[ -n "$ca_file" ]]; then
 fi
 
 build_args=(--build-arg "BASE_IMAGE=${base_image}" -t "$image_tag")
+if [[ -n "$apt_mirror" ]]; then
+  build_args+=(--build-arg "APT_MIRROR=${apt_mirror}")
+fi
+if [[ -n "$apt_security_mirror" ]]; then
+  build_args+=(--build-arg "APT_SECURITY_MIRROR=${apt_security_mirror}")
+fi
+if [[ "$apt_enable_backports" == "1" ]]; then
+  build_args+=(--build-arg "APT_ENABLE_BACKPORTS=1")
+fi
 if [[ "$no_cache" == "1" ]]; then
   build_args+=(--no-cache)
 fi

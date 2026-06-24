@@ -97,6 +97,20 @@ export function validateToolchainShape(value: unknown, platformIndex?: PlatformI
       diagnostics.push({ level: 'error', message: `No Gradle configured: ${gradle}` });
     }
 
+    if (platformIndex && jdk && buildTool === 'maven' && maven && platformIndex.java.maven[maven]) {
+      const minJava = platformIndex.java.maven[maven].minJava;
+      if (minJava && !javaMajorSatisfies(jdk, minJava)) {
+        diagnostics.push({ level: 'error', message: `Maven ${maven} requires Java ${minJava}+; selected JDK is ${jdk}` });
+      }
+    }
+
+    if (platformIndex && jdk && buildTool === 'gradle' && gradle && platformIndex.java.gradle[gradle]) {
+      const minJava = platformIndex.java.gradle[gradle].minJava;
+      if (minJava && !javaMajorSatisfies(jdk, minJava)) {
+        diagnostics.push({ level: 'error', message: `Gradle ${gradle} requires Java ${minJava}+; selected JDK is ${jdk}` });
+      }
+    }
+
     if (diagnostics.some((item) => item.level === 'error')) {
       return { diagnostics };
     }
@@ -123,4 +137,18 @@ export function validateToolchainShape(value: unknown, platformIndex?: PlatformI
 
 function isExactSemverVersion(value: string): boolean {
   return validSemver(value) === value;
+}
+
+function javaMajorSatisfies(jdk: string, minJava: string): boolean {
+  const selected = firstNumber(jdk);
+  const minimum = firstNumber(minJava);
+  if (selected == null || minimum == null) {
+    return true;
+  }
+  return selected >= minimum;
+}
+
+function firstNumber(value: string): number | undefined {
+  const match = value.match(/\d+/);
+  return match ? Number(match[0]) : undefined;
 }

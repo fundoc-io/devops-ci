@@ -63,6 +63,8 @@ validate_java() {
 
 validate_maven() {
   local version="$1"
+  local min_java
+  local validation_java_home
   local maven_home="${MISE_DATA_DIR}/installs/maven/${version}"
   if [[ ! -x "${maven_home}/bin/mvn" ]]; then
     if [[ "$strict" == "1" ]]; then
@@ -71,12 +73,24 @@ validate_maven() {
     log "skipping missing maven ${version}: ${maven_home}/bin/mvn"
     return
   fi
-  log "validating maven ${version}"
-  "${maven_home}/bin/mvn" -v
+
+  min_java="$(manifest_tool_field "${manifest_dir}/maven.json" "maven" "$version" "minJava")"
+  validation_java_home="$(select_probe_java_home "${manifest_dir}/java.json" "$min_java")"
+  if [[ -z "$validation_java_home" ]]; then
+    if [[ "$strict" == "1" ]]; then
+      die "maven ${version} validation requires Java ${min_java:-any}+"
+    fi
+    log "skipping maven ${version}: validation requires Java ${min_java:-any}+"
+    return
+  fi
+  log "validating maven ${version} with JAVA_HOME=${validation_java_home}"
+  run_with_java_home "$validation_java_home" "${maven_home}/bin/mvn" -v
 }
 
 validate_gradle() {
   local version="$1"
+  local min_java
+  local validation_java_home
   local gradle_home="${MISE_DATA_DIR}/installs/gradle/${version}"
   if [[ ! -x "${gradle_home}/bin/gradle" ]]; then
     if [[ "$strict" == "1" ]]; then
@@ -85,8 +99,18 @@ validate_gradle() {
     log "skipping missing gradle ${version}: ${gradle_home}/bin/gradle"
     return
   fi
-  log "validating gradle ${version}"
-  "${gradle_home}/bin/gradle" -v
+
+  min_java="$(manifest_tool_field "${manifest_dir}/gradle.json" "gradle" "$version" "minJava")"
+  validation_java_home="$(select_probe_java_home "${manifest_dir}/java.json" "$min_java")"
+  if [[ -z "$validation_java_home" ]]; then
+    if [[ "$strict" == "1" ]]; then
+      die "gradle ${version} validation requires Java ${min_java:-any}+"
+    fi
+    log "skipping gradle ${version}: validation requires Java ${min_java:-any}+"
+    return
+  fi
+  log "validating gradle ${version} with JAVA_HOME=${validation_java_home}"
+  run_with_java_home "$validation_java_home" "${gradle_home}/bin/gradle" -v
 }
 
 mapfile -t java_versions < <(manifest_versions "${manifest_dir}/java.json" "java")

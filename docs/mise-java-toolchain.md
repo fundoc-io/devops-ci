@@ -123,6 +123,8 @@ sudo scripts/generate-toolchain-index.sh \
   --ci-root /data/devops-ci
 ```
 
+Install a JDK that satisfies the Maven or Gradle runtime requirement before Maven or Gradle. Their install scripts verify the installed tool with `mvn -v` or `gradle -v`. The probe first selects a matching JDK installed under the same `MISE_ROOT`; only when no matching managed JDK exists does it consider the current `JAVA_HOME` as a last-resort probe background.
+
 If the platform package was built without `artifacts/mise/mise` or `artifacts/cli/<tarball>`, copy those files to the Jenkins node separately and pass their actual paths to the install scripts.
 
 ## Offline Archives
@@ -263,6 +265,13 @@ sudo scripts/generate-toolchain-index.sh
 Manifests are available-version catalogs, not a requirement that every Jenkins node installs every key. By default, `validate-mise-tools.sh` and `generate-toolchain-index.sh` skip missing manifest entries and only validate/index tools that are actually installed on the node.
 
 For example, if a node only installs Java 11 and Maven 3, the generated index only exposes `jdk: "11"` and `maven: "3"`. A project declaring an unavailable key such as `jdk: "8"` will fail during `devops-cli resolve`, which is the expected platform availability check.
+
+Maven and Gradle need a Java runtime even for `mvn -v` or `gradle -v`. Each `maven.json` or `gradle.json` entry can declare `minJava`, for example Maven 3 uses `minJava: "8"` and Maven 4 should use `minJava: "17"`. Validation and index generation probe each Maven/Gradle version with a Java runtime chosen in this order:
+
+1. The lowest installed JDK in the same `MISE_ROOT` that satisfies `minJava`.
+2. The current environment `JAVA_HOME`, only if no matching managed JDK exists and it appears to satisfy `minJava`.
+
+The probe does not write a `mise use -g` default and does not affect Jenkins build selection. The generated index records `minJava`, `probeJavaHome`, and `probeJavaSource` for auditability. If no probe Java is available, the entry is skipped by default or fails under `--strict`.
 
 Use `--strict` when preparing a node that is expected to contain every manifest entry:
 

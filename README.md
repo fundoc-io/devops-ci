@@ -92,6 +92,29 @@ scripts/build-node-ci-image.sh \
   --image devops-ci/node20:202606
 ```
 
+For slower Debian mirrors, pass an explicit mirror:
+
+```bash
+scripts/build-node-ci-image.sh \
+  --node 20 \
+  --base node:20-bookworm-slim \
+  --image devops-ci/node20:202606 \
+  --apt-mirror https://mirrors.aliyun.com/debian \
+  --apt-security-mirror https://mirrors.aliyun.com/debian-security
+```
+
+Backports are disabled by default. Enable them only when the selected base image and mirror publish that suite:
+
+```bash
+scripts/build-node-ci-image.sh \
+  --node 20 \
+  --base node:20-bookworm-slim \
+  --image devops-ci/node20:202606 \
+  --apt-mirror https://mirrors.aliyun.com/debian \
+  --apt-security-mirror https://mirrors.aliyun.com/debian-security \
+  --apt-enable-backports
+```
+
 At runtime Jenkins mounts the workspace and generated runner scripts. The default init step installs the declared package manager into `/tmp/devops-ci-pm` inside the container and does not mount host npm/pnpm/yarn caches.
 
 ## Jenkins Copy-Paste Helper
@@ -190,6 +213,8 @@ sudo scripts/generate-toolchain-index.sh \
 ```
 
 The generated index includes installed tools only. Missing manifest entries are skipped by default, so a node that installs only Java 11 will not expose Java 8/17/21. Use `--strict` on `validate-mise-tools.sh` or `generate-toolchain-index.sh` only when a node must contain every manifest entry.
+
+Install a JDK that satisfies the Maven or Gradle runtime requirement before installing Maven or Gradle. Validation prefers a matching JDK managed by this `mise` root. If no matching managed JDK exists, it may use the current `JAVA_HOME` as a last-resort probe background. It does not require a global `mise use -g` default.
 
 For offline installation, provide local archives instead of downloading through `mise`:
 

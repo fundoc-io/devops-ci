@@ -218,6 +218,107 @@ for value in requested:
 PY
 }
 
+manifest_tool_field() {
+  local manifest="$1"
+  local key="$2"
+  local version="$3"
+  local field="$4"
+
+  [[ -f "$manifest" ]] || die "manifest not found: $manifest"
+  ensure_command python3
+
+  python3 - "$manifest" "$key" "$version" "$field" <<'PY'
+import json
+import sys
+
+manifest_path, key, requested_version, field = sys.argv[1:]
+with open(manifest_path, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+for item in data.get(key, []):
+    version = str(item.get("version", ""))
+    name = str(item.get("name", ""))
+    if requested_version in (version, name):
+        value = item.get(field)
+        if value is not None:
+            print(value)
+        break
+PY
+}
+
+select_probe_java_home() {
+  local java_manifest="$1"
+  local min_java="${2:-}"
+
+  [[ -f "$java_manifest" ]] || die "manifest not found: $java_manifest"
+  ensure_command python3
+
+  python3 - "$java_manifest" "$MISE_DATA_DIR" "$min_java" "${JAVA_HOME:-}" <<'PY'
+import json
+import os
+import re
+import subprocess
+import sys
+
+manifest_path, mise_data_dir, min_java_raw, env_java_home = sys.argv[1:]
+
+def major_from_text(value):
+    text = str(value or "")
+    match = re.search(r"\d+", text)
+    if not match:
+        return None
+    return int(match.group(0))
+
+min_java = major_from_text(min_java_raw) or 0
+
+with open(manifest_path, "r", encoding="utf-8") as fh:
+    data = json.load(fh)
+
+managed_candidates = []
+for item in data.get("java", []):
+    version = str(item.get("version", ""))
+    if not version:
+        continue
+    name = str(item.get("name", ""))
+    major = major_from_text(name) or major_from_text(version)
+    if major is None or major < min_java:
+        continue
+    java_home = os.path.join(mise_data_dir, "installs", "java", version)
+    java_bin = os.path.join(java_home, "bin", "java")
+    if os.path.isfile(java_bin) and os.access(java_bin, os.X_OK):
+        managed_candidates.append((major, java_home))
+
+if managed_candidates:
+    managed_candidates.sort(key=lambda item: item[0])
+    print(managed_candidates[0][1])
+    raise SystemExit(0)
+
+if env_java_home:
+    java_bin = os.path.join(env_java_home, "bin", "java")
+    env_major = major_from_text(os.path.basename(env_java_home))
+    if env_major is None and os.path.isfile(java_bin) and os.access(java_bin, os.X_OK):
+        try:
+            result = subprocess.run([java_bin, "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            env_major = major_from_text(result.stdout + result.stderr)
+        except Exception:
+            env_major = None
+    if env_major is not None and env_major >= min_java and os.path.isfile(java_bin) and os.access(java_bin, os.X_OK):
+        print(env_java_home)
+PY
+}
+
+run_with_java_home() {
+  local java_home="$1"
+  shift
+
+  if [[ -n "$java_home" ]]; then
+    JAVA_HOME="$java_home" PATH="${java_home}/bin:${PATH}" "$@"
+    return
+  fi
+
+  "$@"
+}
+
 set_mise_permissions() {
   local root="$1"
   require_managed_mise_root "$root"

@@ -87,14 +87,20 @@ if [[ -n "$archive" && "${#versions[@]}" -ne 1 ]]; then
 fi
 
 for version in "${versions[@]}"; do
+  min_java="$(manifest_tool_field "$manifest" "gradle" "$version" "minJava")"
+  validation_java_home="$(select_probe_java_home "${MISE_ROOT}/manifests/java.json" "$min_java")"
+  if [[ -z "$validation_java_home" ]]; then
+    die "Gradle ${version} validation requires Java ${min_java:-any}+; install a matching platform JDK first or provide JAVA_HOME"
+  fi
+
   if [[ -n "$archive" ]]; then
     install_archive_into_mise_tool "gradle" "$version" "$archive" "bin/gradle" "$force"
-    "$(mise_tool_install_dir "gradle" "$version")/bin/gradle" -v
+    run_with_java_home "$validation_java_home" "$(mise_tool_install_dir "gradle" "$version")/bin/gradle" -v
   else
     ensure_mise
     log "installing gradle@${version}"
     "$MISE_BIN" install "gradle@${version}"
-    "$MISE_BIN" exec "gradle@${version}" -- gradle -v
+    run_with_java_home "$validation_java_home" "$MISE_BIN" exec "gradle@${version}" -- gradle -v
   fi
 done
 

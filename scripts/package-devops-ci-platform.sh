@@ -135,7 +135,7 @@ trap cleanup EXIT
 package_root="${tmp_dir}/${package_name}"
 mkdir -p "$package_root" "$output_dir"
 
-for item in README.md LICENSE Makefile config docker docs jenkins scripts; do
+for item in README.md README.zh-CN.md LICENSE Makefile config docker docs jenkins scripts; do
   copy_required_path "${REPO_ROOT}/${item}" "$package_root/"
 done
 
@@ -163,6 +163,7 @@ cat > "${package_root}/MANIFEST.json" <<EOF
   "version": "${version}",
   "contents": [
     "README.md",
+    "README.zh-CN.md",
     "LICENSE",
     "Makefile",
     "config/",

@@ -2,11 +2,13 @@
   "gradle": [
     {
       "name": "7.6.4",
-      "version": "7.6.4"
+      "version": "7.6.4",
+      "minJava": "8"
     },
     {
       "name": "8.8",
-      "version": "8.8"
+      "version": "8.8",
+      "minJava": "8"
     }
   ]
 }

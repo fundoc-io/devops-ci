@@ -89,6 +89,7 @@ tmp_file="$(mktemp "${output_file}.tmp.XXXXXX")"
 python3 - "$MISE_DATA_DIR" "$manifest_dir" "$base_file" "$tmp_file" "$strict" <<'PY'
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -102,9 +103,9 @@ def load_json(path):
 def warn(message):
     print(f"WARNING: {message}", file=sys.stderr)
 
-def can_use(command):
+def can_use(command, env=None):
     try:
-        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         return True
     except Exception as exc:
         warn(f"validation failed for {' '.join(command)}: {exc}")
@@ -113,7 +114,7 @@ def can_use(command):
 def executable_available(path):
     return os.path.isfile(path) and os.access(path, os.X_OK)
 
-def include_or_skip(kind, name, executable, command):
+def include_or_skip(kind, name, executable, command, env=None):
     if not executable_available(executable):
         message = f"{kind} {name} is not installed: {executable}"
         if strict:
@@ -121,7 +122,7 @@ def include_or_skip(kind, name, executable, command):
         warn(f"skipping {message}")
         return False
 
-    if not can_use(command):
+    if not can_use(command, env):
         message = f"{kind} {name} exists but failed validation"
         if strict:
             raise SystemExit(message)
@@ -129,6 +130,52 @@ def include_or_skip(kind, name, executable, command):
         return False
 
     return True
+
+def skip_or_die(message):
+    if strict:
+        raise SystemExit(message)
+    warn(f"skipping {message}")
+    return False
+
+def with_java_env(java_home):
+    if not java_home:
+        return None
+    env = os.environ.copy()
+    env["JAVA_HOME"] = java_home
+    env["PATH"] = os.path.join(java_home, "bin") + os.pathsep + env.get("PATH", "")
+    return env
+
+def major_from_text(value):
+    match = re.search(r"\d+", str(value or ""))
+    if not match:
+        return None
+    return int(match.group(0))
+
+def select_probe_java(min_java, installed_jdks):
+    min_major = major_from_text(min_java) or 0
+    candidates = []
+    for key, item in installed_jdks.items():
+        java_home = item.get("JAVA_HOME")
+        major = major_from_text(key) or major_from_text(java_home)
+        if java_home and major is not None and major >= min_major:
+            candidates.append((major, java_home, "mise"))
+    if candidates:
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0]
+
+    env_java_home = os.environ.get("JAVA_HOME")
+    env_major = major_from_text(os.path.basename(env_java_home or ""))
+    env_java_bin = os.path.join(env_java_home or "", "bin", "java")
+    if env_major is None and executable_available(env_java_bin):
+        try:
+            result = subprocess.run([env_java_bin, "-version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            env_major = major_from_text(result.stdout + result.stderr)
+        except Exception:
+            env_major = None
+    if env_java_home and env_major is not None and env_major >= min_major and executable_available(env_java_bin):
+        return (env_major, env_java_home, "env")
+
+    return None
 
 index = load_json(base_file)
 index.setdefault("java", {})
@@ -151,18 +198,48 @@ for item in java_manifest.get("java", []):
 for item in maven_manifest.get("maven", []):
     name = item["name"]
     version = item["version"]
+    min_java = str(item.get("minJava", ""))
     maven_home = os.path.join(mise_data_dir, "installs", "maven", version)
     mvn_bin = os.path.join(maven_home, "bin", "mvn")
-    if include_or_skip("maven", name, mvn_bin, [mvn_bin, "-v"]):
-        index["java"]["maven"][name] = {"MAVEN_HOME": maven_home}
+    if not executable_available(mvn_bin):
+        include_or_skip("maven", name, mvn_bin, [mvn_bin, "-v"])
+        continue
+    selected_java = select_probe_java(min_java, index["java"]["jdks"])
+    if not selected_java:
+        skip_or_die(f"maven {name} validation requires Java {min_java or 'any'}+")
+        continue
+    _, probe_java_home, probe_source = selected_java
+    validation_java_env = with_java_env(probe_java_home)
+    if include_or_skip("maven", name, mvn_bin, [mvn_bin, "-v"], validation_java_env):
+        index["java"]["maven"][name] = {
+            "MAVEN_HOME": maven_home,
+            "minJava": min_java,
+            "probeJavaHome": probe_java_home,
+            "probeJavaSource": probe_source,
+        }
 
 for item in gradle_manifest.get("gradle", []):
     name = item["name"]
     version = item["version"]
+    min_java = str(item.get("minJava", ""))
     gradle_home = os.path.join(mise_data_dir, "installs", "gradle", version)
     gradle_bin = os.path.join(gradle_home, "bin", "gradle")
-    if include_or_skip("gradle", name, gradle_bin, [gradle_bin, "-v"]):
-        index["java"]["gradle"][name] = {"GRADLE_HOME": gradle_home}
+    if not executable_available(gradle_bin):
+        include_or_skip("gradle", name, gradle_bin, [gradle_bin, "-v"])
+        continue
+    selected_java = select_probe_java(min_java, index["java"]["jdks"])
+    if not selected_java:
+        skip_or_die(f"gradle {name} validation requires Java {min_java or 'any'}+")
+        continue
+    _, probe_java_home, probe_source = selected_java
+    validation_java_env = with_java_env(probe_java_home)
+    if include_or_skip("gradle", name, gradle_bin, [gradle_bin, "-v"], validation_java_env):
+        index["java"]["gradle"][name] = {
+            "GRADLE_HOME": gradle_home,
+            "minJava": min_java,
+            "probeJavaHome": probe_java_home,
+            "probeJavaSource": probe_source,
+        }
 
 with open(output_file, "w", encoding="utf-8") as fh:
     json.dump(index, fh, ensure_ascii=False, indent=2)

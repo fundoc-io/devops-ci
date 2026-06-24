@@ -92,6 +92,29 @@ scripts/build-node-ci-image.sh \
   --image devops-ci/node20:202606
 ```
 
+如果 Debian 源访问慢，可以显式指定镜像源：
+
+```bash
+scripts/build-node-ci-image.sh \
+  --node 20 \
+  --base node:20-bookworm-slim \
+  --image devops-ci/node20:202606 \
+  --apt-mirror https://mirrors.aliyun.com/debian \
+  --apt-security-mirror https://mirrors.aliyun.com/debian-security
+```
+
+默认不启用 backports。只有当所选 base image 和镜像源都发布对应 backports suite 时，才显式开启：
+
+```bash
+scripts/build-node-ci-image.sh \
+  --node 20 \
+  --base node:20-bookworm-slim \
+  --image devops-ci/node20:202606 \
+  --apt-mirror https://mirrors.aliyun.com/debian \
+  --apt-security-mirror https://mirrors.aliyun.com/debian-security \
+  --apt-enable-backports
+```
+
 运行时 Jenkins 只挂载 workspace 和生成的 runner 脚本。默认 init 步骤会在容器内把声明的包管理器安装到 `/tmp/devops-ci-pm`，不会挂载宿主机 npm/pnpm/yarn cache。
 
 ## Jenkins 复制片段
@@ -190,6 +213,8 @@ sudo scripts/generate-toolchain-index.sh \
 ```
 
 生成的 index 只包含当前节点已经安装的工具。未安装的 manifest 条目默认跳过，所以只安装 Java 11 的节点不会暴露 Java 8/17/21。只有当某个节点必须安装 manifest 中全部条目时，才给 `validate-mise-tools.sh` 或 `generate-toolchain-index.sh` 加 `--strict`。
+
+安装 Maven 或 Gradle 前，先安装满足该工具运行要求的 JDK。校验会优先使用当前 `mise` root 内已安装且满足最低版本要求的 JDK；如果没有匹配的 managed JDK，才把当前环境里的 `JAVA_HOME` 作为兜底探测背景。这个过程不要求也不会写入全局 `mise use -g` 默认值。
 
 如果下载慢，可以用本地 archive 离线安装，不走 `mise install` 下载：
 

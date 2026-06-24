@@ -24,6 +24,9 @@ export interface ToolHome {
   JAVA_HOME?: string;
   MAVEN_HOME?: string;
   GRADLE_HOME?: string;
+  minJava?: string;
+  probeJavaHome?: string;
+  probeJavaSource?: string;
 }
 
 export interface PlatformIndex {

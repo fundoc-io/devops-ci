@@ -87,14 +87,20 @@ if [[ -n "$archive" && "${#versions[@]}" -ne 1 ]]; then
 fi
 
 for version in "${versions[@]}"; do
+  min_java="$(manifest_tool_field "$manifest" "maven" "$version" "minJava")"
+  validation_java_home="$(select_probe_java_home "${MISE_ROOT}/manifests/java.json" "$min_java")"
+  if [[ -z "$validation_java_home" ]]; then
+    die "Maven ${version} validation requires Java ${min_java:-any}+; install a matching platform JDK first or provide JAVA_HOME"
+  fi
+
   if [[ -n "$archive" ]]; then
     install_archive_into_mise_tool "maven" "$version" "$archive" "bin/mvn" "$force"
-    "$(mise_tool_install_dir "maven" "$version")/bin/mvn" -v
+    run_with_java_home "$validation_java_home" "$(mise_tool_install_dir "maven" "$version")/bin/mvn" -v
   else
     ensure_mise
     log "installing maven@${version}"
     "$MISE_BIN" install "maven@${version}"
-    "$MISE_BIN" exec "maven@${version}" -- mvn -v
+    run_with_java_home "$validation_java_home" "$MISE_BIN" exec "maven@${version}" -- mvn -v
   fi
 done
 

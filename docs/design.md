@@ -135,7 +135,7 @@ mise use -g java@temurin-21 maven@3.9.6
 
 `scripts/install-tooling-node.sh lts` installs host/platform Node through the shared mise data root under `/data/mise/data/installs/node`, and writes the selected executable path to `/data/mise/devops-cli-node.path`. Pass that path to `scripts/install-devops-ci-cli.sh --node` when installing the Jenkins agent CLI wrapper.
 
-`scripts/generate-toolchain-index.sh` validates installed Java/Maven/Gradle tools, then writes `/data/devops-ci/index.json`. The generated index maps public keys such as `jdk: "21"` to actual tool homes. Missing manifest entries are skipped by default; pass `--strict` only when the node must contain every manifest entry.
+`scripts/generate-toolchain-index.sh` validates installed Java/Maven/Gradle tools, then writes `/data/devops-ci/index.json`. The generated index maps public keys such as `jdk: "21"` to actual tool homes. Maven/Gradle validation uses each manifest entry's `minJava` to choose a probe Java: first a matching JDK from the same `MISE_ROOT`, then the current `JAVA_HOME` only as a last resort. It does not require or write a `mise use -g` default. Missing manifest entries are skipped by default; pass `--strict` only when the node must contain every manifest entry.
 
 ## Distribution
 
