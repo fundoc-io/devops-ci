@@ -9,9 +9,9 @@ CI toolchain preparation for Jenkins-based DevOps environments.
 ## What This Project Provides
 
 - `.ci/toolchain.json`: a project-level declaration for Node.js or Java build toolchains.
-- `devops-cli`: a TypeScript CLI for creating, validating, printing, and resolving toolchain declarations.
+- `devops-toolchain`: a TypeScript CLI for creating, validating, printing, and resolving toolchain declarations.
 - Node Docker Runner: a Dockerfile template and entrypoint for Node.js builds selected by Node major version.
-- Host tooling scripts: `mise`-based setup scripts for the shared `devops-cli` Node.js runtime plus JDK, Maven, and Gradle on Jenkins nodes.
+- Host tooling scripts: `mise`-based setup scripts for the shared `devops-toolchain` Node.js runtime plus JDK, Maven, and Gradle on Jenkins nodes.
 - Jenkins helper snippet: a copy-paste Groovy helper for ordinary `Pipeline script from SCM` jobs.
 - Distribution packaging: Makefile targets and scripts for building CLI and platform tarballs.
 
@@ -68,16 +68,18 @@ node dist/user-cli.js validate --file ../../.ci/toolchain.json --project-dir ../
 
 The installed user-side npm package supports Node.js 12.22.0 or newer, so it can run inside older application project environments. Source builds and platform artifact packaging follow this repository's development toolchain and may use newer Node.js tooling.
 
+The user package is `@devops/toolchain-cli` and installs the `devops-toolchain` executable. The `devops-cli` name is reserved for a future general-purpose DevOps CLI.
+
 After package installation, the user-facing command is:
 
 ```bash
-devops-cli init
-devops-cli validate
-devops-cli print
-devops-cli resolve
+devops-toolchain init
+devops-toolchain validate
+devops-toolchain print
+devops-toolchain resolve
 ```
 
-`init` uses existing `.ci/toolchain.json` as defaults when present. Without that file, it can inspect `package.json`: `engines.node` or `volta.node` provides the Node major default, and `packageManager` provides the package manager default. Interactive setup supports going back to the previous field before writing the final JSON.
+`init` uses existing `.ci/toolchain.json` as defaults when present. Without that file, it inspects `package.json` and lockfiles. `engines.node` or `volta.node` provides the Node major default; `packageManager` and lockfiles provide package-manager candidates with visible sources. If only a package-manager major can be inferred, the CLI can query `registry.npmjs.org` for the latest matching exact version; when that lookup is disabled or unavailable, the prompt keeps a manual input option with the inferred major shown as a hint. Interactive setup supports going back to the previous field before writing the final JSON.
 
 The package currently uses the `@devops` npm scope for private-registry isolation. If publishing to a public npm registry later, confirm that scope ownership and package naming are appropriate before publishing.
 
@@ -126,7 +128,7 @@ stage('Build') {
     steps {
         script {
             def devopsCi = new DevopsCiToolchain(this)
-            devopsCi.buildByToolchain('.ci/toolchain.json')
+            devopsCi.buildByToolchain()
         }
     }
 }
@@ -135,16 +137,14 @@ stage('Build') {
 Node-specific hooks can be supplied by the business pipeline:
 
 ```groovy
+def buildPath = "https://<your-static-cdn>/${projectName}/${processBusinessKey}"
+
 devopsCi.nodeDockerBuild(
-    initScript: { ctx ->
-        """
-        ${ctx.initCommand}
-        npm config set sass_binary_site <your-node-sass-mirror>
-        """
-    },
-    buildScript: { ctx ->
-        "${ctx.buildCommand} -- --mode production"
-    },
+    pmConfig: [
+        sass_binary_site: '<your-node-sass-mirror>',
+        chromedriver_cdnurl: '<your-chromedriver-mirror>'
+    ],
+    buildArgs: [silent: true, buildpath: buildPath],
     afterDocker: { ctx ->
         archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: false
     }
@@ -179,12 +179,12 @@ sudo scripts/install-mise.sh \
 sudo scripts/init-mise-layout.sh --root /data/mise
 sudo scripts/install-tooling-node.sh --root /data/mise lts
 
-sudo scripts/install-devops-ci-cli.sh \
+sudo scripts/install-devops-toolchain-cli.sh \
   --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
-  --node "$(cat /data/mise/devops-cli-node.path)" \
-  --prefix /data/tools/devops-cli \
+  --node "$(cat /data/mise/devops-toolchain-node.path)" \
+  --prefix /data/tools/devops-toolchain \
   --index /data/devops-ci/index.json \
-  --link /usr/local/bin/devops-cli
+  --link /usr/local/bin/devops-toolchain
 ```
 
 If the platform package was built without a `mise` binary or CLI tarball, replace the `artifacts/mise/...` or `artifacts/cli/...` paths with the external files copied to that Jenkins node.
@@ -194,12 +194,12 @@ The generated wrapper records the configured index path and uses the explicit No
 If you already have a suitable Node.js executable, you can skip `install-tooling-node.sh` and pass it directly:
 
 ```bash
-sudo scripts/install-devops-ci-cli.sh \
+sudo scripts/install-devops-toolchain-cli.sh \
   --tarball /path/to/devops-ci-agent-linux-x64-0.1.0.tar.gz \
   --node /path/to/node \
-  --prefix /data/tools/devops-cli \
+  --prefix /data/tools/devops-toolchain \
   --index /data/devops-ci/index.json \
-  --link /usr/local/bin/devops-cli
+  --link /usr/local/bin/devops-toolchain
 ```
 
 For Java builds, install the required host tools and regenerate the platform index:

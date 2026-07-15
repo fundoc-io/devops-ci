@@ -4,7 +4,7 @@ import { coerce, minVersion } from 'semver';
 import { supportedNodeMajors, validateToolchainShape } from '../schema/toolchain-schema';
 import type { Diagnostic, PackageManager, PlatformIndex, Toolchain } from '../types';
 import { loadPlatformIndex } from '../utils/platform-index';
-import { parsePackageManagerSpec, readPackageJson } from '../utils/package-json';
+import { parsePackageManagerReference, readPackageJson } from '../utils/package-json';
 import { validateProjectFiles } from './validate';
 
 export interface ResolveCommandOptions {
@@ -90,16 +90,19 @@ async function inferNodeToolchainFromPackageJson(projectDir: string): Promise<To
     throw new Error('toolchain file not found and package.json does not declare engines.node or volta.node');
   }
 
-  const pm = parsePackageManagerSpec(pkg.packageManager);
+  const pm = parsePackageManagerReference(pkg.packageManager);
   if (!pm) {
     throw new Error('toolchain file not found and package.json does not declare packageManager');
+  }
+  if (!pm.exactVersion) {
+    throw new Error('toolchain file not found and package.json packageManager must declare an exact version for resolve fallback');
   }
 
   return {
     type: 'node',
     node,
     pm: pm.pm,
-    pmver: pm.pmver
+    pmver: pm.exactVersion
   };
 }
 

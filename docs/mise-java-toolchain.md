@@ -2,7 +2,7 @@
 
 Host Node.js, Java, Maven, and Gradle are prepared on Jenkins nodes with `mise`.
 
-The host Node.js runtime is only for platform tools such as the `devops-cli` wrapper. Project Node.js builds run inside Docker runner images selected by `.ci/toolchain.json`.
+The host Node.js runtime is only for platform tools such as the `devops-toolchain` wrapper. Project Node.js builds run inside Docker runner images selected by `.ci/toolchain.json`.
 
 Normal Java builds consume the generated index and do not install tools during a business pipeline.
 
@@ -13,7 +13,7 @@ Normal Java builds consume the generated index and do not install tools during a
 /usr/local/bin/devops-mise
 /data/mise
 /data/mise/mise-env.sh
-/data/mise/devops-cli-node.path
+/data/mise/devops-toolchain-node.path
 /data/devops-ci/index.json
 ```
 
@@ -25,7 +25,7 @@ The current phase assumes a local `mise` binary package exists. `scripts/install
 /data/mise/
 ├── .devops-mise-root
 ├── mise-env.sh
-├── devops-cli-node.path
+├── devops-toolchain-node.path
 ├── data/
 │   └── installs/
 │       ├── java/
@@ -51,7 +51,7 @@ The current phase assumes a local `mise` binary package exists. `scripts/install
 
 The script also writes a `.devops-mise-root` marker. Install and permission-normalization scripts require this marker before touching the root recursively.
 
-If the configured index file does not exist, initialization copies the base index to `/data/devops-ci/index.json`. That gives `devops-cli resolve` enough data for Node Docker builds immediately. Java/Maven/Gradle entries are added later by `generate-toolchain-index.sh` after the host tools are installed.
+If the configured index file does not exist, initialization copies the base index to `/data/devops-ci/index.json`. That gives `devops-toolchain resolve` enough data for Node Docker builds immediately. Java/Maven/Gradle entries are added later by `generate-toolchain-index.sh` after the host tools are installed.
 
 ## Manual Mise Maintenance
 
@@ -100,17 +100,17 @@ sudo scripts/install-mise.sh \
 
 sudo scripts/init-mise-layout.sh --root /data/mise
 
-# Runtime used by /usr/local/bin/devops-cli, not by project Node builds.
+# Runtime used by /usr/local/bin/devops-toolchain, not by project Node builds.
 sudo scripts/install-tooling-node.sh --root /data/mise lts
 
-sudo scripts/install-devops-ci-cli.sh \
+sudo scripts/install-devops-toolchain-cli.sh \
   --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
-  --node "$(cat /data/mise/devops-cli-node.path)" \
-  --prefix /data/tools/devops-cli \
+  --node "$(cat /data/mise/devops-toolchain-node.path)" \
+  --prefix /data/tools/devops-toolchain \
   --index /data/devops-ci/index.json \
-  --link /usr/local/bin/devops-cli
+  --link /usr/local/bin/devops-toolchain
 
-devops-cli resolve \
+devops-toolchain resolve \
   --file .ci/toolchain.json \
   --project-dir .
 
@@ -175,22 +175,22 @@ The scripts extract archives into the same managed locations that the platform i
 
 ## Host Node Runtime
 
-Install the shared Node.js runtime used by the `devops-cli` wrapper:
+Install the shared Node.js runtime used by the `devops-toolchain` wrapper:
 
 ```bash
 sudo scripts/install-tooling-node.sh --root /data/mise lts
-cat /data/mise/devops-cli-node.path
+cat /data/mise/devops-toolchain-node.path
 ```
 
 Then pass that executable to the CLI installer:
 
 ```bash
-sudo scripts/install-devops-ci-cli.sh \
+sudo scripts/install-devops-toolchain-cli.sh \
   --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
-  --node "$(cat /data/mise/devops-cli-node.path)" \
-  --prefix /data/tools/devops-cli \
+  --node "$(cat /data/mise/devops-toolchain-node.path)" \
+  --prefix /data/tools/devops-toolchain \
   --index /data/devops-ci/index.json \
-  --link /usr/local/bin/devops-cli
+  --link /usr/local/bin/devops-toolchain
 ```
 
 This Node.js runtime should not be used to build application Node.js projects. Those builds remain Docker-based.
@@ -205,7 +205,7 @@ scripts/install-maven-tools.sh 3 installs maven@3.9.6
 scripts/install-tooling-node.sh 20 installs node@20
 ```
 
-The `tooling-node.json` manifest is only for the platform Node.js runtime used by `devops-cli`. Business Node.js versions are resolved from Docker runner images instead.
+The `tooling-node.json` manifest is only for the platform Node.js runtime used by `devops-toolchain`. Business Node.js versions are resolved from Docker runner images instead.
 
 After layout or tool installation, the scripts normalize `/data/mise` permissions:
 
@@ -264,7 +264,7 @@ sudo scripts/generate-toolchain-index.sh
 
 Manifests are available-version catalogs, not a requirement that every Jenkins node installs every key. By default, `validate-mise-tools.sh` and `generate-toolchain-index.sh` skip missing manifest entries and only validate/index tools that are actually installed on the node.
 
-For example, if a node only installs Java 11 and Maven 3, the generated index only exposes `jdk: "11"` and `maven: "3"`. A project declaring an unavailable key such as `jdk: "8"` will fail during `devops-cli resolve`, which is the expected platform availability check.
+For example, if a node only installs Java 11 and Maven 3, the generated index only exposes `jdk: "11"` and `maven: "3"`. A project declaring an unavailable key such as `jdk: "8"` will fail during `devops-toolchain resolve`, which is the expected platform availability check.
 
 Maven and Gradle need a Java runtime even for `mvn -v` or `gradle -v`. Each `maven.json` or `gradle.json` entry can declare `minJava`, for example Maven 3 uses `minJava: "8"` and Maven 4 should use `minJava: "17"`. Validation and index generation probe each Maven/Gradle version with a Java runtime chosen in this order:
 
@@ -282,7 +282,7 @@ sudo scripts/generate-toolchain-index.sh --strict
 
 ## Jenkins Consumption
 
-`devops-cli resolve` reads the index and returns Java runtime information. The Jenkins copy-paste helper consumes that result and injects:
+`devops-toolchain resolve` reads the index and returns Java runtime information. The Jenkins copy-paste helper consumes that result and injects:
 
 - `JAVA_HOME`
 - `MAVEN_HOME` or `GRADLE_HOME`

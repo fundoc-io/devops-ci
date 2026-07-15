@@ -1,8 +1,9 @@
 import { promises as fs } from 'fs';
+import https from 'https';
 import path from 'path';
 import pc from 'picocolors';
 import prompts from 'prompts';
-import { coerce, minVersion } from 'semver';
+import { coerce, maxSatisfying, minVersion, valid as validSemver } from 'semver';
 import { supportedNodeMajors, validateToolchainShape } from '../schema/toolchain-schema';
 import type {
   JavaBuildTool,
@@ -14,13 +15,18 @@ import type {
   ToolchainType
 } from '../types';
 import { loadPlatformIndex } from '../utils/platform-index';
-import { parsePackageManagerSpec, readPackageJson } from '../utils/package-json';
+import { parsePackageManagerReference, readPackageJson } from '../utils/package-json';
 import { writeJsonFile } from '../utils/write-json';
+import { inferPackageManagersFromLockfiles } from '../utils/lockfile';
 
 type WizardKey = 'type' | 'node' | 'pm' | 'pmver' | 'jdk' | 'buildTool' | 'maven' | 'gradle' | 'skipTests';
 
 const commonJdkChoices = ['8', '11', '17', '21'];
 const commonMavenChoices = ['3', '4'];
+const packageManagers: PackageManager[] = ['npm', 'pnpm', 'yarn'];
+const npmPackageVersionsCache = new Map<string, Promise<string[]>>();
+
+type Locale = 'en' | 'zh-CN';
 
 interface InitState {
   type?: ToolchainType;
@@ -37,14 +43,33 @@ interface InitState {
 interface InitDefaults {
   state: InitState;
   source: string;
+  candidates: InitCandidates;
+}
+
+interface InitCandidates {
+  pmSources: Partial<Record<PackageManager, string[]>>;
+  pmVersionChoices: Partial<Record<PackageManager, InferredChoice[]>>;
+  pmVersionHints: Partial<Record<PackageManager, string[]>>;
+}
+
+interface InferredChoice {
+  value: string;
+  sources: string[];
 }
 
 interface WizardStep {
   key: WizardKey;
   label: string;
-  choices: string[];
+  choices: WizardChoice[];
   defaultValue?: string;
   manual?: boolean;
+  manualHint?: string;
+}
+
+interface WizardChoice {
+  value: string;
+  title?: string;
+  description?: string;
 }
 
 export interface InitCommandOptions {
@@ -62,6 +87,8 @@ export interface InitCommandOptions {
   skipTests?: string | boolean;
   yes?: boolean;
   backup?: boolean;
+  lang?: string;
+  registryLookup?: boolean;
 }
 
 export async function initCommand(options: InitCommandOptions = {}): Promise<number> {
@@ -70,12 +97,13 @@ export async function initCommand(options: InitCommandOptions = {}): Promise<num
   const projectDir = path.resolve(options.projectDir ?? process.cwd());
   const yes = options.yes === true;
   const backup = options.backup === true;
-  const defaults = await resolveInitDefaults(file, projectDir, loaded.index);
+  const locale = resolveLocale(options.lang);
+  const defaults = await resolveInitDefaults(file, projectDir, loaded.index, options.registryLookup !== false);
 
   try {
-    const toolchain = await collectToolchain(options, loaded.index, defaults, yes);
+    const toolchain = await collectToolchain(options, loaded.index, defaults, yes, locale);
     if (!toolchain) {
-      console.log('No changes written.');
+      console.log(t(locale, 'noChanges'));
       return 0;
     }
 
@@ -95,26 +123,26 @@ export async function initCommand(options: InitCommandOptions = {}): Promise<num
       }
     }
 
-    const writeDecision = await decideExistingFile(file, yes, backup);
+    const writeDecision = await decideExistingFile(file, yes, backup, locale);
     if (writeDecision === 'exit') {
-      console.log('No changes written.');
+      console.log(t(locale, 'noChanges'));
       return 0;
     }
 
     if (writeDecision === 'backup') {
       const backupFile = `${file}.${timestamp()}.bak`;
       await fs.copyFile(file, backupFile);
-      console.log(`Backed up existing file to ${backupFile}`);
+      console.log(t(locale, 'backedUp', { file: backupFile }));
     }
 
     await writeJsonFile(file, toolchain);
-    console.log(`Wrote ${file}`);
-    console.log(`Defaults: ${defaults.source}`);
-    console.log(`Platform index: ${loaded.source ?? 'not configured; platform availability was not checked'}`);
+    console.log(t(locale, 'wrote', { file }));
+    console.log(t(locale, 'defaults', { source: defaults.source }));
+    console.log(t(locale, 'platformIndex', { source: loaded.source ?? t(locale, 'platformIndexMissing') }));
     return 0;
   } catch (error) {
     if (error instanceof PromptCancelled) {
-      console.log('No changes written.');
+      console.log(t(locale, 'noChanges'));
       return 0;
     }
     throw error;
@@ -125,17 +153,18 @@ async function collectToolchain(
   options: InitCommandOptions,
   platformIndex: PlatformIndex | undefined,
   defaults: InitDefaults,
-  yes: boolean
+  yes: boolean,
+  locale: Locale
 ): Promise<Toolchain | null> {
   const state = applyOptionDefaults({ ...defaults.state }, options);
   let stepIndex = 0;
 
   while (true) {
-    const steps = buildSteps(state, platformIndex);
+    const steps = buildSteps(state, platformIndex, defaults.candidates, locale);
 
     if (stepIndex >= steps.length) {
       const toolchain = stateToToolchain(state);
-      const decision = await confirmToolchain(toolchain, yes);
+      const decision = await confirmToolchain(toolchain, yes, locale);
       if (decision === 'write') {
         return toolchain;
       }
@@ -152,13 +181,13 @@ async function collectToolchain(
       continue;
     }
 
-    if (!process.stdin.isTTY) {
+    if (yes || !process.stdin.isTTY) {
       ensureStepHasValue(step, state);
       stepIndex += 1;
       continue;
     }
 
-    const result = await promptStep(step, stepIndex > 0);
+    const result = await promptStep(step, stepIndex > 0, locale);
     if (result === 'back') {
       stepIndex = Math.max(stepIndex - 1, 0);
       continue;
@@ -169,41 +198,49 @@ async function collectToolchain(
   }
 }
 
-function buildSteps(state: InitState, platformIndex: PlatformIndex | undefined): WizardStep[] {
-  const typeChoices = ['node', 'java'];
+function buildSteps(
+  state: InitState,
+  platformIndex: PlatformIndex | undefined,
+  candidates: InitCandidates,
+  locale: Locale
+): WizardStep[] {
+  const typeChoices = choices(['node', 'java']);
   const steps: WizardStep[] = [
     {
       key: 'type',
-      label: 'Project type',
+      label: t(locale, 'projectType'),
       choices: typeChoices,
       defaultValue: state.type
     }
   ];
 
   if (state.type === 'node') {
-    const nodeChoices = supportedNodeMajors;
+    const nodeChoices = choices(supportedNodeMajors);
     const pm = state.pm ?? 'pnpm';
-    const pmVersions = withDefaultChoice([], state.pmver);
+    const pmVersions = versionChoices(candidates.pmVersionChoices[pm] ?? [], state.pmver);
+    const hints = candidates.pmVersionHints[pm] ?? [];
 
     steps.push(
       {
         key: 'node',
-        label: 'Node major',
+        label: t(locale, 'nodeMajor'),
         choices: nodeChoices,
         defaultValue: state.node ?? '20'
       },
       {
         key: 'pm',
-        label: 'Package manager',
-        choices: ['npm', 'pnpm', 'yarn'],
-        defaultValue: pm
+        label: t(locale, 'packageManager'),
+        choices: packageManagerChoices(candidates),
+        defaultValue: pm,
+        manual: true
       },
       {
         key: 'pmver',
-        label: `${pm} version`,
+        label: t(locale, 'pmVersion', { pm }),
         choices: pmVersions,
         defaultValue: state.pmver ?? firstOrUndefined(pmVersions),
-        manual: true
+        manual: true,
+        manualHint: hints.join('; ')
       }
     );
   }
@@ -213,15 +250,15 @@ function buildSteps(state: InitState, platformIndex: PlatformIndex | undefined):
     steps.push(
       {
         key: 'jdk',
-        label: 'JDK',
-        choices: withDefaultChoice(commonJdkChoices, state.jdk),
+        label: t(locale, 'jdk'),
+        choices: withDefaultChoice(choices(commonJdkChoices), state.jdk),
         defaultValue: state.jdk ?? '21',
         manual: true
       },
       {
         key: 'buildTool',
-        label: 'Build tool',
-        choices: ['maven', 'gradle'],
+        label: t(locale, 'buildTool'),
+        choices: choices(['maven', 'gradle']),
         defaultValue: buildTool
       }
     );
@@ -229,16 +266,16 @@ function buildSteps(state: InitState, platformIndex: PlatformIndex | undefined):
     if (buildTool === 'maven') {
       steps.push({
         key: 'maven',
-        label: 'Maven version',
-        choices: withDefaultChoice(commonMavenChoices, state.maven),
+        label: t(locale, 'mavenVersion'),
+        choices: withDefaultChoice(choices(commonMavenChoices), state.maven),
         defaultValue: state.maven ?? '3',
         manual: true
       });
     } else {
       steps.push({
         key: 'gradle',
-        label: 'Gradle version',
-        choices: withDefaultChoice(Object.keys(platformIndex?.java.gradle ?? {}), state.gradle),
+        label: t(locale, 'gradleVersion'),
+        choices: withDefaultChoice(choices(Object.keys(platformIndex?.java.gradle ?? {})), state.gradle),
         defaultValue: state.gradle,
         manual: true
       });
@@ -246,8 +283,8 @@ function buildSteps(state: InitState, platformIndex: PlatformIndex | undefined):
 
     steps.push({
       key: 'skipTests',
-      label: 'Skip tests',
-      choices: ['false', 'true'],
+      label: t(locale, 'skipTests'),
+      choices: choices(['false', 'true']),
       defaultValue: String(state.skipTests ?? false)
     });
   }
@@ -255,19 +292,23 @@ function buildSteps(state: InitState, platformIndex: PlatformIndex | undefined):
   return steps;
 }
 
-async function promptStep(step: WizardStep, canBack: boolean): Promise<string | 'back'> {
+async function promptStep(step: WizardStep, canBack: boolean, locale: Locale): Promise<string | 'back'> {
   while (true) {
-    const choices = step.choices.map((choice) => ({
-      title: choice,
-      value: choice
+    const choices: Array<{ title: string; value: string; description?: string }> = step.choices.map((choice) => ({
+      title: choice.title ?? choice.value,
+      value: choice.value,
+      description: choice.description
     }));
 
     if (step.manual) {
-      choices.push({ title: 'Manual input', value: MANUAL_VALUE });
+      choices.push({
+        title: step.manualHint ? t(locale, 'manualWithHint', { hint: step.manualHint }) : t(locale, 'manualInput'),
+        value: MANUAL_VALUE
+      });
     }
 
     if (canBack) {
-      choices.push({ title: 'Back', value: BACK_VALUE });
+      choices.push({ title: t(locale, 'back'), value: BACK_VALUE });
     }
 
     const initial = Math.max(choices.findIndex((choice) => choice.value === step.defaultValue), 0);
@@ -291,7 +332,9 @@ async function promptStep(step: WizardStep, canBack: boolean): Promise<string | 
         {
           type: 'text',
           name: 'value',
-          message: `${step.label} manual value`,
+          message: step.manualHint
+            ? `${t(locale, 'manualValue', { label: step.label })} (${step.manualHint})`
+            : t(locale, 'manualValue', { label: step.label }),
           initial: step.defaultValue
         },
         promptOptions
@@ -302,9 +345,10 @@ async function promptStep(step: WizardStep, canBack: boolean): Promise<string | 
         return 'back';
       }
       if (value) {
+        validateManualValue(step, value);
         return value;
       }
-      console.log(yellow('Value cannot be empty.'));
+      console.log(yellow(t(locale, 'valueCannotBeEmpty')));
       continue;
     }
 
@@ -312,11 +356,18 @@ async function promptStep(step: WizardStep, canBack: boolean): Promise<string | 
   }
 }
 
+function validateManualValue(step: WizardStep, value: string): void {
+  if (step.key === 'pm' && !packageManagers.includes(value as PackageManager)) {
+    throw new Error(`unsupported package manager: ${value}`);
+  }
+}
+
 async function confirmToolchain(
   toolchain: Toolchain,
-  yes: boolean
+  yes: boolean,
+  locale: Locale
 ): Promise<'write' | 'back' | 'exit'> {
-  console.log(cyan('\nGenerated .ci/toolchain.json:'));
+  console.log(cyan(`\n${t(locale, 'generatedToolchain')}`));
   console.log(JSON.stringify(toolchain, null, 2));
 
   if (yes || !process.stdin.isTTY) {
@@ -325,10 +376,10 @@ async function confirmToolchain(
 
   const decision = await promptStep({
     key: 'type',
-    label: 'Confirm',
-    choices: ['write', 'back', 'exit'],
+    label: t(locale, 'confirm'),
+    choices: choices(['write', 'back', 'exit']),
     defaultValue: 'write'
-  }, false);
+  }, false, locale);
 
   return decision as 'write' | 'back' | 'exit';
 }
@@ -430,26 +481,27 @@ function stateToToolchain(state: InitState): Toolchain {
   throw new Error('type is required');
 }
 
-async function resolveInitDefaults(file: string, projectDir: string, platformIndex: PlatformIndex | undefined): Promise<InitDefaults> {
+async function resolveInitDefaults(
+  file: string,
+  projectDir: string,
+  platformIndex: PlatformIndex | undefined,
+  registryLookup: boolean
+): Promise<InitDefaults> {
   const existingDefaults = await readExistingToolchainDefaults(file);
   if (existingDefaults) {
     return {
       state: mergeBaseDefaults(existingDefaults, platformIndex),
-      source: file
+      source: file,
+      candidates: emptyCandidates()
     };
   }
 
-  const packageDefaults = await readPackageDefaults(projectDir);
-  if (packageDefaults) {
-    return {
-      state: mergeBaseDefaults(packageDefaults, platformIndex),
-      source: path.join(projectDir, 'package.json')
-    };
-  }
+  const inferred = await inferProjectDefaults(projectDir, registryLookup);
 
   return {
-    state: mergeBaseDefaults({}, platformIndex),
-    source: 'schema defaults'
+    state: mergeBaseDefaults(inferred.state, platformIndex),
+    source: inferred.source,
+    candidates: inferred.candidates
   };
 }
 
@@ -467,28 +519,91 @@ async function readExistingToolchainDefaults(file: string): Promise<InitState | 
   return knownFieldsToState(raw);
 }
 
-async function readPackageDefaults(projectDir: string): Promise<InitState | null> {
+async function inferProjectDefaults(projectDir: string, registryLookup: boolean): Promise<InitDefaults> {
   const pkg = await readPackageJson(projectDir);
+  const candidates = emptyCandidates();
+  const state: InitState = {};
+  const sources: string[] = [];
+
   if (!pkg) {
-    return null;
+    return {
+      state,
+      source: 'schema defaults',
+      candidates
+    };
   }
 
-  const state: InitState = {
-    type: 'node'
-  };
+  state.type = 'node';
+  sources.push(path.join(projectDir, 'package.json'));
 
   const nodeMajor = nodeMajorFromPackageJson(pkg);
   if (nodeMajor) {
     state.node = nodeMajor;
   }
 
-  const packageManager = parsePackageManagerSpec(pkg.packageManager);
+  const packageManager = parsePackageManagerReference(pkg.packageManager);
   if (packageManager) {
     state.pm = packageManager.pm;
-    state.pmver = packageManager.pmver;
+    addPmSource(candidates, packageManager.pm, `package.json packageManager ${pkg.packageManager}`);
+    if (packageManager.exactVersion) {
+      state.pmver = packageManager.exactVersion;
+      addVersionChoice(candidates, packageManager.pm, packageManager.exactVersion, `package.json packageManager ${pkg.packageManager}`);
+    } else if (packageManager.range) {
+      const resolved = registryLookup ? await latestPackageManagerVersion(packageManager.pm, packageManager.range) : undefined;
+      if (resolved) {
+        state.pmver = resolved;
+        addVersionChoice(candidates, packageManager.pm, resolved, `registry latest ${packageManager.pm}@${packageManager.range}`);
+      } else {
+        addVersionHint(candidates, packageManager.pm, `package.json packageManager range ${packageManager.rawVersion}`);
+      }
+    } else {
+      addVersionHint(candidates, packageManager.pm, `package.json packageManager version ${packageManager.rawVersion}`);
+    }
   }
 
-  return state;
+  const lockInferences = await inferPackageManagersFromLockfiles(projectDir);
+  if (lockInferences.length > 0) {
+    sources.push('lockfiles');
+  }
+
+  for (const inference of lockInferences) {
+    addPmSource(candidates, inference.pm, inference.detail);
+    if (inference.version) {
+      addVersionChoice(candidates, inference.pm, inference.version, inference.detail);
+      if (!state.pm) {
+        state.pm = inference.pm;
+      }
+      if (state.pm === inference.pm && !state.pmver) {
+        state.pmver = inference.version;
+      }
+      continue;
+    }
+
+    if (inference.versionMajor) {
+      const range = `${inference.versionMajor}.x`;
+      const resolved = registryLookup ? await latestPackageManagerVersion(inference.pm, range) : undefined;
+      if (resolved) {
+        addVersionChoice(candidates, inference.pm, resolved, `${inference.detail}; registry latest ${inference.pm}@${range}`);
+        if (!state.pm) {
+          state.pm = inference.pm;
+        }
+        if (state.pm === inference.pm && !state.pmver) {
+          state.pmver = resolved;
+        }
+      } else {
+        addVersionHint(candidates, inference.pm, inference.detail);
+        if (!state.pm) {
+          state.pm = inference.pm;
+        }
+      }
+    }
+  }
+
+  return {
+    state,
+    source: sources.length > 0 ? sources.join(', ') : 'schema defaults',
+    candidates
+  };
 }
 
 function knownFieldsToState(raw: Record<string, unknown>): InitState {
@@ -600,7 +715,8 @@ function textOption(value: string | number | undefined): string | undefined {
 function ensureStepHasValue(step: WizardStep, state: InitState): void {
   const value = state[step.key];
   if (value == null || value === '') {
-    throw new Error(`missing required option for non-interactive mode: ${step.label}`);
+    const hint = step.manualHint ? ` (${step.manualHint})` : '';
+    throw new Error(`missing required option for non-interactive mode: ${step.label}${hint}`);
   }
 }
 
@@ -637,15 +753,145 @@ function normalizeNodeVersionRange(versionRange: string): string {
   return versionRange.replace(/\bxx\b/gi, 'x');
 }
 
-function withDefaultChoice(choices: string[], defaultValue?: string): string[] {
-  if (!defaultValue || choices.includes(defaultValue)) {
-    return choices;
-  }
-  return [defaultValue, ...choices];
+function emptyCandidates(): InitCandidates {
+  return {
+    pmSources: {},
+    pmVersionChoices: {},
+    pmVersionHints: {}
+  };
 }
 
-function firstOrUndefined(values: string[]): string | undefined {
-  return values.length > 0 ? values[0] : undefined;
+function addPmSource(candidates: InitCandidates, pm: PackageManager, source: string): void {
+  candidates.pmSources[pm] = unique([...(candidates.pmSources[pm] ?? []), source]);
+}
+
+function addVersionChoice(candidates: InitCandidates, pm: PackageManager, value: string, source: string): void {
+  const choices = candidates.pmVersionChoices[pm] ?? [];
+  const existing = choices.find((choice) => choice.value === value);
+  if (existing) {
+    existing.sources = unique([...existing.sources, source]);
+  } else {
+    choices.push({ value, sources: [source] });
+  }
+  candidates.pmVersionChoices[pm] = choices;
+}
+
+function addVersionHint(candidates: InitCandidates, pm: PackageManager, hint: string): void {
+  candidates.pmVersionHints[pm] = unique([...(candidates.pmVersionHints[pm] ?? []), hint]);
+}
+
+function choices(values: string[]): WizardChoice[] {
+  return values.map((value) => ({ value }));
+}
+
+function packageManagerChoices(candidates: InitCandidates): WizardChoice[] {
+  return packageManagers.map((pm) => ({
+    value: pm,
+    title: pmTitle(pm, candidates.pmSources[pm] ?? []),
+    description: (candidates.pmSources[pm] ?? []).join('; ') || undefined
+  }));
+}
+
+function pmTitle(pm: PackageManager, sources: string[]): string {
+  if (sources.length === 0) {
+    return pm;
+  }
+  const shortSources = sources
+    .map((source) => source.match(/\b(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|package\.json)\b/)?.[1])
+    .filter((source): source is string => Boolean(source));
+  return shortSources.length > 0 ? `${pm} (from ${unique(shortSources).join(', ')})` : `${pm} (inferred)`;
+}
+
+function versionChoices(inferred: InferredChoice[], defaultValue?: string): WizardChoice[] {
+  const values = inferred.map((choice) => ({
+    value: choice.value,
+    description: choice.sources.join('; ')
+  }));
+  return withDefaultChoice(values, defaultValue);
+}
+
+function withDefaultChoice(choices: WizardChoice[], defaultValue?: string): WizardChoice[] {
+  if (!defaultValue || choices.some((choice) => choice.value === defaultValue)) {
+    return choices;
+  }
+  return [{ value: defaultValue }, ...choices];
+}
+
+function firstOrUndefined(values: WizardChoice[]): string | undefined {
+  return values.length > 0 ? values[0].value : undefined;
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
+async function latestPackageManagerVersion(pm: PackageManager, range: string): Promise<string | undefined> {
+  const versions = await fetchNpmPackageVersions(pm);
+  if (versions.length === 0) {
+    return undefined;
+  }
+  return maxSatisfying(versions, range) ?? undefined;
+}
+
+async function fetchNpmPackageVersions(name: string): Promise<string[]> {
+  const cached = npmPackageVersionsCache.get(name);
+  if (cached) {
+    return cached;
+  }
+
+  const request = fetchNpmPackageVersionsUncached(name);
+  npmPackageVersionsCache.set(name, request);
+  return request;
+}
+
+async function fetchNpmPackageVersionsUncached(name: string): Promise<string[]> {
+  try {
+    const encoded = encodeURIComponent(name);
+    const body = await httpsGetJson(`https://registry.npmjs.org/${encoded}`, 2500);
+    const versions = (body as { versions?: Record<string, unknown> }).versions;
+    if (!versions) {
+      return [];
+    }
+    return Object.keys(versions).filter((version) => validSemver(version) === version);
+  } catch {
+    return [];
+  }
+}
+
+function httpsGetJson(url: string, timeoutMs: number): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, {
+      timeout: timeoutMs,
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'devops-toolchain'
+      }
+    }, (response) => {
+      if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+        response.resume();
+        reject(new Error(`HTTP ${response.statusCode ?? 0}`));
+        return;
+      }
+
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => {
+        body += chunk;
+      });
+      response.on('end', () => {
+        try {
+          resolve(JSON.parse(body));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    request.on('timeout', () => {
+      request.destroy(new Error('timeout'));
+    });
+    request.on('error', reject);
+  });
 }
 
 function isBack(value: string): boolean {
@@ -674,7 +920,8 @@ function parseBooleanValue(value: string | boolean, fallback: boolean): boolean 
 async function decideExistingFile(
   file: string,
   yes: boolean,
-  backup: boolean
+  backup: boolean,
+  locale: Locale
 ): Promise<'overwrite' | 'backup' | 'exit'> {
   try {
     await fs.stat(file);
@@ -696,13 +943,97 @@ async function decideExistingFile(
   return (await promptStep({
     key: 'type',
     label: `${file} exists`,
-    choices: ['overwrite', 'backup', 'exit'],
+    choices: choices(['overwrite', 'backup', 'exit']),
     defaultValue: 'exit'
-  }, false)) as 'overwrite' | 'backup' | 'exit';
+  }, false, locale)) as 'overwrite' | 'backup' | 'exit';
 }
 
 function timestamp(): string {
   return new Date().toISOString().replace(/[-:]/g, '').replace(/\..+$/, 'Z');
+}
+
+function resolveLocale(lang: string | undefined): Locale {
+  const raw = (lang ?? process.env.DEVOPS_TOOLCHAIN_LANG ?? process.env.LANG ?? '').toLowerCase();
+  return raw.startsWith('zh') ? 'zh-CN' : 'en';
+}
+
+type MessageKey =
+  | 'noChanges'
+  | 'backedUp'
+  | 'wrote'
+  | 'defaults'
+  | 'platformIndex'
+  | 'platformIndexMissing'
+  | 'projectType'
+  | 'nodeMajor'
+  | 'packageManager'
+  | 'pmVersion'
+  | 'jdk'
+  | 'buildTool'
+  | 'mavenVersion'
+  | 'gradleVersion'
+  | 'skipTests'
+  | 'manualInput'
+  | 'manualWithHint'
+  | 'back'
+  | 'manualValue'
+  | 'valueCannotBeEmpty'
+  | 'generatedToolchain'
+  | 'confirm';
+
+const messages: Record<Locale, Record<MessageKey, string>> = {
+  en: {
+    noChanges: 'No changes written.',
+    backedUp: 'Backed up existing file to {file}',
+    wrote: 'Wrote {file}',
+    defaults: 'Defaults: {source}',
+    platformIndex: 'Platform index: {source}',
+    platformIndexMissing: 'not configured; platform availability was not checked',
+    projectType: 'Project type',
+    nodeMajor: 'Node major',
+    packageManager: 'Package manager',
+    pmVersion: '{pm} version',
+    jdk: 'JDK',
+    buildTool: 'Build tool',
+    mavenVersion: 'Maven version',
+    gradleVersion: 'Gradle version',
+    skipTests: 'Skip tests',
+    manualInput: 'Manual input',
+    manualWithHint: 'Manual input ({hint})',
+    back: 'Back',
+    manualValue: '{label} manual value',
+    valueCannotBeEmpty: 'Value cannot be empty.',
+    generatedToolchain: 'Generated .ci/toolchain.json:',
+    confirm: 'Confirm'
+  },
+  'zh-CN': {
+    noChanges: '未写入任何变更。',
+    backedUp: '已备份现有文件到 {file}',
+    wrote: '已写入 {file}',
+    defaults: '默认值来源：{source}',
+    platformIndex: '平台索引：{source}',
+    platformIndexMissing: '未配置；未校验平台可用性',
+    projectType: '项目类型',
+    nodeMajor: 'Node 主版本',
+    packageManager: '包管理器',
+    pmVersion: '{pm} 版本',
+    jdk: 'JDK',
+    buildTool: '构建工具',
+    mavenVersion: 'Maven 版本',
+    gradleVersion: 'Gradle 版本',
+    skipTests: '跳过测试',
+    manualInput: '手动输入',
+    manualWithHint: '手动输入（{hint}）',
+    back: '返回上一步',
+    manualValue: '{label} 手动值',
+    valueCannotBeEmpty: '值不能为空。',
+    generatedToolchain: '生成的 .ci/toolchain.json：',
+    confirm: '确认'
+  }
+};
+
+function t(locale: Locale, key: MessageKey, values: Record<string, string> = {}): string {
+  return messages[locale][key].replace(/\{([^}]+)\}/g, (_, name: string) => values[name] ?? '');
 }
 
 const MANUAL_VALUE = '__manual__';

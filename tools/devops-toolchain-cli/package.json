@@ -1,12 +1,12 @@
 {
-  "name": "@devops/devops-cli",
+  "name": "@devops/toolchain-cli",
   "version": "0.1.0",
   "private": false,
   "description": "CLI for generating and validating .ci/toolchain.json declarations.",
   "packageManager": "pnpm@11.0.7",
   "main": "./dist/user/index.js",
   "bin": {
-    "devops-cli": "./bin/devops-cli.cjs"
+    "devops-toolchain": "./bin/devops-toolchain.cjs"
   },
   "files": [
     "bin/",

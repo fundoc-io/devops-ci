@@ -5,7 +5,7 @@ import { printCommand } from './commands/print';
 import { resolveCommand } from './commands/resolve';
 import { validateCommand } from './commands/validate';
 
-const cli = cac('devops-cli');
+const cli = cac('devops-toolchain');
 
 cli
   .command('validate', 'Validate toolchain declaration, platform index, package.json, and lockfiles')

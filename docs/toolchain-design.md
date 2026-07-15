@@ -50,26 +50,18 @@ Some Jenkins jobs keep a single Groovy pipeline file under an application pipeli
 
 ```groovy
 def devopsCi = new DevopsCiToolchain(this)
+def buildPath = "https://<your-static-cdn>/${projectName}/${processBusinessKey}"
+
 devopsCi.nodeDockerBuild(
     pmConfig: [
-        sass_binary_site: '<your-node-sass-mirror>'
+        sass_binary_site: '<your-node-sass-mirror>',
+        chromedriver_cdnurl: '<your-chromedriver-mirror>'
     ],
-    initScript: { ctx ->
-        def npmrcLines = ['npm', 'pnpm'].contains(ctx.toolchain.pm)
-            ? ctx.pmConfig.collect { key, value -> "npm config set ${key} ${value}" }.join('\n')
-            : ''
-        """
-        ${ctx.initCommand}
-        ${npmrcLines}
-        """
-    },
-    buildScript: { ctx ->
-        "${ctx.buildCommand} -- --mode production"
-    },
+    buildArgs: [silent: true, buildpath: buildPath],
     afterDocker: { ctx ->
         archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: false
     }
 )
 ```
 
-The helper does not use `load`, `libraryResource`, or direct platform-index reads. It shells out to `devops-cli resolve`, checks `status`, and consumes the returned plan. It writes `init.sh`, `install.sh`, and `build.sh` as extension slots with Jenkins `writeFile`; executable permissions are left to the Docker runner entrypoint. The entrypoint sources `init.sh` so PATH and package-manager config exported there are visible to later steps, then executes `install.sh` and `build.sh` with `bash`.
+The helper does not use `load`, `libraryResource`, or direct platform-index reads. It shells out to `devops-toolchain resolve`, checks `status`, and consumes the returned plan. It writes `init.sh`, `install.sh`, and `build.sh` as extension slots with Jenkins `writeFile`; executable permissions are left to the Docker runner entrypoint. The entrypoint sources `init.sh` so PATH and package-manager config exported there are visible to later steps, then executes `install.sh` and `build.sh` with `bash`.

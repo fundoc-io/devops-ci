@@ -51,9 +51,9 @@ export async function loadPlatformIndex(indexPath?: string): Promise<LoadedPlatf
 
 async function readConfiguredIndex(): Promise<string | undefined> {
   const candidates = [
-    process.env.DEVOPS_CLI_CONFIG,
-    path.resolve(__dirname, '..', 'config', 'devops-cli.json'),
-    path.resolve(__dirname, '..', '..', 'config', 'devops-cli.json')
+    process.env.DEVOPS_TOOLCHAIN_CONFIG,
+    path.resolve(__dirname, '..', 'config', 'devops-toolchain.json'),
+    path.resolve(__dirname, '..', '..', 'config', 'devops-toolchain.json')
   ].filter((item): item is string => Boolean(item));
 
   for (const candidate of candidates) {

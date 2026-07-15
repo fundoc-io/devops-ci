@@ -58,4 +58,4 @@ The entrypoint always runs:
 /ci-scripts/build.sh
 ```
 
-`init.sh` is sourced by the entrypoint so PATH and package-manager config exported by the init slot are visible to `install.sh` and `build.sh`. The default Jenkins helper installs the declared package manager into `/tmp/devops-ci-pm` and uses `/tmp` for npm cache/user config. These paths are inside the container and disappear when it exits.
+`init.sh` is sourced by the entrypoint so PATH and package-manager config exported by the init slot are visible to `install.sh` and `build.sh`. The default Jenkins helper installs the declared package manager into `/tmp/devops-ci-pm`, exports registry variables for the selected package manager, and passes package-level mirrors as install-script environment variables. It does not mount host npm/pnpm/yarn caches.

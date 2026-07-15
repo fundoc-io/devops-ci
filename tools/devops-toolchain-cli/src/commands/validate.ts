@@ -1,10 +1,11 @@
 import { promises as fs } from 'fs';
 import path from 'path';
+import { satisfies } from 'semver';
 import { validateToolchainShape } from '../schema/toolchain-schema';
 import type { Diagnostic, Toolchain } from '../types';
 import { loadPlatformIndex } from '../utils/platform-index';
 import { detectLockfiles, validateLockfiles } from '../utils/lockfile';
-import { parsePackageManagerSpec, readPackageJson } from '../utils/package-json';
+import { parsePackageManagerReference, readPackageJson } from '../utils/package-json';
 
 export interface ValidateCommandOptions {
   file?: string;
@@ -65,8 +66,8 @@ export async function validateProjectFiles(toolchain: Toolchain, projectDir: str
 
   if (pkg.packageManager) {
     const expected = `${toolchain.pm}@${toolchain.pmver}`;
-    const actual = parsePackageManagerSpec(pkg.packageManager);
-    if (!actual || actual.pm !== toolchain.pm || actual.pmver !== toolchain.pmver) {
+    const actual = parsePackageManagerReference(pkg.packageManager);
+    if (!actual || actual.pm !== toolchain.pm || !packageManagerVersionMatches(actual, toolchain.pmver)) {
       diagnostics.push({
         level: 'error',
         message: `package.json packageManager mismatch. expected ${expected}, got ${pkg.packageManager}`
@@ -90,4 +91,17 @@ export async function validateProjectFiles(toolchain: Toolchain, projectDir: str
   diagnostics.push(...validateLockfiles(toolchain.pm, lockfiles));
 
   return diagnostics;
+}
+
+function packageManagerVersionMatches(actual: ReturnType<typeof parsePackageManagerReference>, selectedVersion: string): boolean {
+  if (!actual) {
+    return false;
+  }
+  if (actual.exactVersion) {
+    return actual.exactVersion === selectedVersion;
+  }
+  if (actual.range) {
+    return satisfies(selectedVersion, actual.range);
+  }
+  return actual.rawVersion === selectedVersion;
 }

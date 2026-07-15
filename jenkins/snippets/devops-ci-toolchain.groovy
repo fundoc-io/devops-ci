@@ -18,11 +18,11 @@ class DevopsCiToolchain implements Serializable {
         this.javaRunner = new JavaRunner(steps, resolver)
     }
 
-    def buildByToolchain(String toolchainFile = '.ci/toolchain.json') {
-        return buildByToolchain([file: toolchainFile])
+    static String shellQuote(Object value) {
+        return Tools.shellQuote(value == null ? '' : value.toString())
     }
 
-    def buildByToolchain(Map options) {
+    def buildByToolchain(Map options = [:]) {
         Map plan = resolver.resolve(options)
         Map next = copyOptions(options)
         next.plan = plan
@@ -36,19 +36,11 @@ class DevopsCiToolchain implements Serializable {
         steps.error "Unsupported resolved toolchain type: ${plan.type}"
     }
 
-    def nodeDockerBuild(String toolchainFile = '.ci/toolchain.json') {
-        return nodeDockerBuild([file: toolchainFile])
-    }
-
-    def nodeDockerBuild(Map options) {
+    def nodeDockerBuild(Map options = [:]) {
         return nodeRunner.run(options)
     }
 
-    def javaBuild(String toolchainFile = '.ci/toolchain.json') {
-        return javaBuild([file: toolchainFile])
-    }
-
-    def javaBuild(Map options) {
+    def javaBuild(Map options = [:]) {
         return javaRunner.run(options)
     }
 
@@ -76,18 +68,18 @@ class DevopsCiToolchain implements Serializable {
             int status = steps.sh(script: "${resolveCommand} > ${Tools.shellQuote(resolveFile)}", returnStatus: true)
             String output = steps.readFile(resolveFile).trim()
             if (!output) {
-                steps.error "devops-cli resolve produced no JSON; status=${status}; command=${resolveCommand}"
+                steps.error "devops-toolchain resolve produced no JSON; status=${status}; command=${resolveCommand}"
             }
             Map plan = new groovy.json.JsonSlurperClassic().parseText(output) as Map
             if (status != 0 || plan.status != 'ok') {
-                steps.error "devops-cli resolve failed: ${output}"
+                steps.error "devops-toolchain resolve failed: ${output}"
             }
             return plan
         }
 
         private String command(Map options) {
             List args = [
-                Tools.text(options.cli, steps.env.DEVOPS_CI_CLI ?: 'devops-cli'),
+                Tools.text(options.cli, steps.env.DEVOPS_TOOLCHAIN_CLI ?: 'devops-toolchain'),
                 'resolve',
                 '--file', Tools.text(options.file, '.ci/toolchain.json'),
                 '--project-dir', Tools.text(options.projectDir, '.')
@@ -126,19 +118,39 @@ class DevopsCiToolchain implements Serializable {
             Map tc = plan.toolchain as Map
             String runtimeDir = Tools.text(options.runtimeDir, '.ci-runtime')
             String npmRegistry = Tools.text(options.npmRegistry, steps.env.NPM_REGISTRY ?: 'https://registry.npmjs.org/')
-            return [
+            Map pmConfig = options.pmConfig instanceof Map ? (Map) options.pmConfig : [:]
+            String pmConfigCommand = Tools.nodePmConfigCommand(pmConfig, tc.pm.toString())
+            String initCommand = Tools.joinCommands(defaultInitCommand(), pmConfigCommand)
+            String buildArgsMode = Tools.text(options.buildArgsMode, 'direct')
+            if (!(buildArgsMode in ['direct', 'script', 'separator'])) {
+                steps.error "Unsupported buildArgsMode: ${buildArgsMode}"
+            }
+            Map ctx = [
                 steps: steps,
+                env: steps.env,
                 plan: plan,
                 toolchain: tc,
                 image: plan.runtime.image.toString(),
                 runtimeDir: runtimeDir,
                 resolveFile: Tools.text(options.resolveOutput, "${runtimeDir}/resolve.json"),
                 npmRegistry: npmRegistry,
-                pmConfig: options.pmConfig instanceof Map ? (Map) options.pmConfig : [:],
-                initCommand: defaultInitCommand(),
+                pmConfig: pmConfig,
+                pmConfigCommand: pmConfigCommand,
+                initCommand: initCommand,
                 installCommand: plan.display.install.toString(),
+                defaultBuildCommand: plan.display.build.toString(),
+                buildArgs: '',
+                buildArgsMode: buildArgsMode,
                 buildCommand: plan.display.build.toString()
             ]
+            ctx.buildArgs = Tools.nodeBuildArgs(options.buildArgs, ctx)
+            ctx.buildCommand = Tools.nodeBuildCommand(
+                ctx.defaultBuildCommand.toString(),
+                ctx.toolchain.pm.toString(),
+                ctx.buildArgs.toString(),
+                ctx.buildArgsMode.toString()
+            )
+            return ctx
         }
 
         private void writeSlots(Map ctx, Map options) {
@@ -188,15 +200,22 @@ ${tokenEnv}${dockerArgs}  -v "\$WORKSPACE:/workspace" \\
             : "${NPM_REGISTRY:=https://registry.npmjs.org/}"
 
             export DEVOPS_CI_PM_PREFIX="${DEVOPS_CI_PM_PREFIX:-/tmp/devops-ci-pm}"
-            export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-/tmp/devops-ci-npm-cache}"
-            export NPM_CONFIG_USERCONFIG="${NPM_CONFIG_USERCONFIG:-/tmp/devops-ci-npmrc}"
-            export npm_config_registry="${npm_config_registry:-$NPM_REGISTRY}"
-            export YARN_NPM_REGISTRY_SERVER="${YARN_NPM_REGISTRY_SERVER:-$NPM_REGISTRY}"
+            case "$PM" in
+              npm)
+                export npm_config_registry="$NPM_REGISTRY"
+                ;;
+              pnpm)
+                export pnpm_config_registry="$NPM_REGISTRY"
+                export npm_config_registry="$NPM_REGISTRY"
+                ;;
+              yarn)
+                export YARN_NPM_REGISTRY_SERVER="$NPM_REGISTRY"
+                export npm_config_registry="$NPM_REGISTRY"
+                ;;
+            esac
 
-            mkdir -p "$DEVOPS_CI_PM_PREFIX" "$NPM_CONFIG_CACHE"
-            touch "$NPM_CONFIG_USERCONFIG"
+            mkdir -p "$DEVOPS_CI_PM_PREFIX"
 
-            npm config set registry "$NPM_REGISTRY"
             case "$PM" in
               npm)
                 npm install -g --prefix "$DEVOPS_CI_PM_PREFIX" "npm@${PMVER}"
@@ -223,7 +242,6 @@ ${tokenEnv}${dockerArgs}  -v "\$WORKSPACE:/workspace" \\
                 npm -v
                 ;;
               pnpm)
-                pnpm config set registry "$NPM_REGISTRY"
                 pnpm -v
                 ;;
               yarn)
@@ -312,6 +330,60 @@ ${tokenEnv}${dockerArgs}  -v "\$WORKSPACE:/workspace" \\
             List args = value instanceof List ? (List) value : (value == null ? [] : [value])
             String text = args.collect { it.toString().trim() }.findAll { it }.join(' \\\n')
             return text ? "${text} \\\n" : ''
+        }
+
+        static String nodePmConfigCommand(Map config, String pm) {
+            List lines = []
+            config.each { key, item ->
+                if (item != null && item != false) {
+                    String name = key.toString().trim().toLowerCase().replaceAll(/[^a-z0-9_]/, '_')
+                    if (name) {
+                        String value = item == true ? 'true' : item.toString()
+                        lines << "export npm_config_${name}=${shellQuote(value)}"
+                        if (pm == 'pnpm') {
+                            lines << "export pnpm_config_${name}=${shellQuote(value)}"
+                        }
+                    }
+                }
+            }
+            return lines ? "# npm-compatible package install mirrors\n${lines.join('\n')}" : ''
+        }
+
+        static String nodeBuildArgs(Object value, Map ctx) {
+            Object resolved = value instanceof Closure ? evaluate(value, ctx) : value
+            if (resolved == null) {
+                return ''
+            }
+            if (resolved instanceof Map) {
+                return ((Map) resolved).collect { key, item ->
+                    if (item == null || item == false) {
+                        return ''
+                    }
+                    String name = key.toString().startsWith('--') ? key.toString() : "--${key}"
+                    item == true ? shellQuote(name) : shellQuote("${name}=${item}")
+                }.findAll { it }.join(' ')
+            }
+            if (resolved instanceof List) {
+                return ((List) resolved).collect { shellQuote(it.toString()) }.join(' ')
+            }
+            return resolved.toString().trim()
+        }
+
+        static String nodeBuildCommand(String buildCommand, String pm, String buildArgs, String mode) {
+            if (!buildArgs?.trim()) {
+                return buildCommand
+            }
+            if (mode == 'script') {
+                return pm in ['npm', 'pnpm'] ? "${buildCommand} -- ${buildArgs}" : "${buildCommand} ${buildArgs}"
+            }
+            if (mode == 'separator') {
+                return "${buildCommand} -- ${buildArgs}"
+            }
+            return "${buildCommand} ${buildArgs}"
+        }
+
+        static String joinCommands(String... commands) {
+            return commands.collect { it == null ? '' : it.stripIndent().trim() }.findAll { it }.join('\n\n')
         }
 
         static String text(Object value, String fallback) {

@@ -4,17 +4,17 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/install-devops-ci-cli.sh \
+  scripts/install-devops-toolchain-cli.sh \
     --tarball /path/to/devops-ci-agent-linux-x64-0.1.0.tar.gz \
     [--node /path/to/node] \
-    [--prefix /data/tools/devops-cli] \
+    [--prefix /data/tools/devops-toolchain] \
     [--index /data/devops-ci/index.json] \
-    [--bin-name devops-cli] \
-    [--link /usr/local/bin/devops-cli] \
+    [--bin-name devops-toolchain] \
+    [--link /usr/local/bin/devops-toolchain] \
     [--no-link] \
     [--force]
 
-Installs a prebuilt devops CLI tarball. This script does not install
+Installs a prebuilt DevOps toolchain CLI tarball. This script does not install
 npm dependencies and does not build from source.
 The resolved node path is written into the generated wrapper.
 EOF
@@ -88,10 +88,10 @@ validate_tarball_paths() {
 
 tarball=""
 node_bin=""
-prefix="/data/tools/devops-cli"
+prefix="/data/tools/devops-toolchain"
 index_path="/data/devops-ci/index.json"
-bin_name="devops-cli"
-link_path="/usr/local/bin/devops-cli"
+bin_name="devops-toolchain"
+link_path="/usr/local/bin/devops-toolchain"
 link_explicit=0
 force=0
 
@@ -170,7 +170,7 @@ if [[ -n "$link_path" ]]; then
   link_path="$(resolve_destination_path "$link_path")"
 fi
 
-tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/devops-ci-cli.XXXXXX")"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/devops-toolchain-cli.XXXXXX")"
 cleanup() {
   rm -rf "$tmp_dir"
 }
@@ -198,15 +198,15 @@ mkdir -p "$release_dir" "${prefix}/bin"
 cp -a "${extracted_root}/." "$release_dir/"
 mkdir -p "${release_dir}/bin" "${release_dir}/config"
 
-cat > "${release_dir}/config/devops-cli.json" <<EOF
+cat > "${release_dir}/config/devops-toolchain.json" <<EOF
 {
   "index": "$(json_escape "$index_path")"
 }
 EOF
 
 node_literal="$(shell_quote "$node_bin")"
-cli_entry_literal="$(shell_quote "${release_dir}/cli/devops-ci.cjs")"
-config_literal="$(shell_quote "${release_dir}/config/devops-cli.json")"
+cli_entry_literal="$(shell_quote "${release_dir}/cli/devops-toolchain.cjs")"
+config_literal="$(shell_quote "${release_dir}/config/devops-toolchain.json")"
 
 cat > "${release_dir}/bin/${bin_name}" <<EOF
 #!/usr/bin/env bash
@@ -214,8 +214,8 @@ set -euo pipefail
 
 NODE_BIN=${node_literal}
 CLI_ENTRY=${cli_entry_literal}
-DEVOPS_CLI_CONFIG=${config_literal}
-export DEVOPS_CLI_CONFIG
+DEVOPS_TOOLCHAIN_CONFIG=${config_literal}
+export DEVOPS_TOOLCHAIN_CONFIG
 
 if [[ ! -x "\$NODE_BIN" ]]; then
   echo "ERROR: node binary not found or not executable: \$NODE_BIN" >&2
@@ -223,7 +223,7 @@ if [[ ! -x "\$NODE_BIN" ]]; then
 fi
 
 if [[ ! -f "\$CLI_ENTRY" ]]; then
-  echo "ERROR: devops CLI entry not found: \$CLI_ENTRY" >&2
+  echo "ERROR: devops-toolchain entry not found: \$CLI_ENTRY" >&2
   exit 1
 fi
 

@@ -49,9 +49,9 @@ yarn run build
 平台工具 Node 指 DevOps 平台自身工具链运行所需的 Node.js runtime，例如：
 
 ```text
-devops-cli init
-devops-cli validate
-devops-cli print
+devops-toolchain init
+devops-toolchain validate
+devops-toolchain print
 生成/校验 .ci/toolchain.json
 执行平台侧 Node.js 辅助脚本
 ```
@@ -1648,21 +1648,21 @@ CLI 只负责生成工具链声明，不负责生成任意 commands。
 ### 15.2 建议包名
 
 ```text
-@devops/devops-cli
+@devops/toolchain-cli
 ```
 
 命令：
 
 ```bash
-devops-cli init
-devops-cli validate
-devops-cli print
+devops-toolchain init
+devops-toolchain validate
+devops-toolchain print
 ```
 
 也可支持：
 
 ```bash
-npx @devops/devops-cli init
+npx @devops/toolchain-cli init
 ```
 
 ### 15.3 技术选型

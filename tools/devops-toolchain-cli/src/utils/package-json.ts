@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { valid as validSemver } from 'semver';
+import { valid as validSemver, validRange } from 'semver';
 import type { PackageManager } from '../types';
 
 export interface PackageJson {
@@ -17,6 +17,13 @@ export interface PackageManagerSpec {
   pmver: string;
 }
 
+export interface PackageManagerReference {
+  pm: PackageManager;
+  rawVersion: string;
+  exactVersion?: string;
+  range?: string;
+}
+
 export async function readPackageJson(projectDir: string): Promise<PackageJson | null> {
   try {
     const content = await fs.readFile(path.join(projectDir, 'package.json'), 'utf8');
@@ -31,6 +38,18 @@ export async function readPackageJson(projectDir: string): Promise<PackageJson |
 }
 
 export function parsePackageManagerSpec(value: string | undefined): PackageManagerSpec | undefined {
+  const reference = parsePackageManagerReference(value);
+  if (!reference) {
+    return undefined;
+  }
+
+  return {
+    pm: reference.pm,
+    pmver: reference.exactVersion ?? reference.rawVersion
+  };
+}
+
+export function parsePackageManagerReference(value: string | undefined): PackageManagerReference | undefined {
   if (!value) {
     return undefined;
   }
@@ -41,8 +60,13 @@ export function parsePackageManagerSpec(value: string | undefined): PackageManag
   }
 
   const rawVersion = match[2];
+  const exactVersion = validSemver(rawVersion) ?? undefined;
+  const range = exactVersion ? undefined : validRange(rawVersion) ?? undefined;
+
   return {
     pm: match[1] as PackageManager,
-    pmver: validSemver(rawVersion) ?? rawVersion
+    rawVersion,
+    exactVersion,
+    range
   };
 }

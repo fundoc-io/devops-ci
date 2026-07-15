@@ -18,15 +18,15 @@ await fs.rm(stagingRoot, { recursive: true, force: true });
 await fs.mkdir(path.join(artifactRoot, 'cli'), { recursive: true });
 await fs.mkdir(artifactDir, { recursive: true });
 
-await fs.copyFile(bundledEntry, path.join(artifactRoot, 'cli', 'devops-ci.cjs'));
+await fs.copyFile(bundledEntry, path.join(artifactRoot, 'cli', 'devops-toolchain.cjs'));
 await fs.writeFile(path.join(artifactRoot, 'VERSION'), `${version}\n`, 'utf8');
 await fs.writeFile(path.join(artifactRoot, 'MANIFEST.json'), `${JSON.stringify({
   name: 'devops-ci-agent',
   version,
-  entry: 'cli/devops-ci.cjs',
+  entry: 'cli/devops-toolchain.cjs',
   generatedAt: new Date().toISOString()
 }, null, 2)}\n`, 'utf8');
-await fs.chmod(path.join(artifactRoot, 'cli', 'devops-ci.cjs'), 0o755);
+await fs.chmod(path.join(artifactRoot, 'cli', 'devops-toolchain.cjs'), 0o755);
 
 await tar.c(
   {

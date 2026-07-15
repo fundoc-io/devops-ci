@@ -6,7 +6,7 @@ import { printCommand } from './commands/print';
 import { resolveCommand } from './commands/resolve';
 import { validateCommand } from './commands/validate';
 
-const cli = cac('devops-cli');
+const cli = cac('devops-toolchain');
 
 cli
   .command('init', 'Generate .ci/toolchain.json without commands/scripts/args')
@@ -22,6 +22,8 @@ cli
   .option('--maven <version>', 'Maven version')
   .option('--gradle <version>', 'Gradle version')
   .option('--skip-tests <boolean>', 'Skip Java tests')
+  .option('--lang <locale>', 'Interactive language: en or zh-CN')
+  .option('--no-registry-lookup', 'Do not query npm registry when expanding inferred package manager major versions')
   .option('--yes', 'Accept defaults and overwrite without confirmation')
   .option('--backup', 'Backup existing toolchain file before writing')
   .action(run(initCommand));

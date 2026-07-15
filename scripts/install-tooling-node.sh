@@ -10,12 +10,12 @@ Usage:
   scripts/install-tooling-node.sh \
     [--root /data/mise] \
     [--manifest /data/mise/manifests/tooling-node.json] \
-    [--node-path-file /data/mise/devops-cli-node.path] \
+    [--node-path-file /data/mise/devops-toolchain-node.path] \
     [--archive /path/to/node.tar.gz] \
     [--force] \
     [key-or-version...]
 
-Installs a host Node.js runtime for platform tools such as devops-cli.
+Installs a host Node.js runtime for platform tools such as devops-toolchain.
 This Node.js runtime is not used for project Node builds; project builds run
 inside Docker runner images selected by .ci/toolchain.json.
 
@@ -23,7 +23,7 @@ Default install key:
   lts
 
 The installed executable path is written to:
-  /data/mise/devops-cli-node.path
+  /data/mise/devops-toolchain-node.path
 
 When --archive is provided, the script does not download through mise. It
 extracts one local Node.js archive into:
@@ -81,7 +81,7 @@ done
 
 require_root
 manifest="${manifest:-${MISE_ROOT}/manifests/tooling-node.json}"
-node_path_file="${node_path_file:-${MISE_ROOT}/devops-cli-node.path}"
+node_path_file="${node_path_file:-${MISE_ROOT}/devops-toolchain-node.path}"
 
 if [[ "${#versions[@]}" -eq 0 ]]; then
   versions=("lts")
@@ -118,7 +118,7 @@ done
 
 printf '%s\n' "$runtime_node_path" > "$node_path_file"
 chmod 0644 "$node_path_file"
-log "wrote devops-cli Node path: ${node_path_file}"
+log "wrote devops-toolchain Node path: ${node_path_file}"
 
 set_mise_permissions "$MISE_ROOT"
 log "normalized permissions under ${MISE_ROOT}"

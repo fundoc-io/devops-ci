@@ -2,6 +2,14 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import type { Diagnostic, PackageManager } from '../types';
 
+export interface LockfileInference {
+  pm: PackageManager;
+  version?: string;
+  versionMajor?: string;
+  source: string;
+  detail: string;
+}
+
 export interface LockfileState {
   packageLock: boolean;
   npmShrinkwrap: boolean;
@@ -74,4 +82,130 @@ export function validateLockfiles(pm: PackageManager, state: LockfileState): Dia
   }
 
   return diagnostics;
+}
+
+export async function inferPackageManagersFromLockfiles(projectDir: string): Promise<LockfileInference[]> {
+  const results: LockfileInference[] = [];
+
+  results.push(...await inferNpmLock(path.join(projectDir, 'package-lock.json'), 'package-lock.json'));
+  results.push(...await inferNpmLock(path.join(projectDir, 'npm-shrinkwrap.json'), 'npm-shrinkwrap.json'));
+  results.push(...await inferPnpmLock(path.join(projectDir, 'pnpm-lock.yaml')));
+  results.push(...await inferYarnLock(path.join(projectDir, 'yarn.lock')));
+
+  return results;
+}
+
+async function inferNpmLock(file: string, source: string): Promise<LockfileInference[]> {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  const lockfileVersion = raw.lockfileVersion;
+  const inference = npmInferenceFromLockfileVersion(lockfileVersion);
+  if (!inference) {
+    return [{
+      pm: 'npm',
+      source,
+      detail: `detected ${source}`
+    }];
+  }
+
+  return [{
+    pm: 'npm',
+    versionMajor: inference.major,
+    source,
+    detail: `${source} lockfileVersion ${String(lockfileVersion)} suggests ${inference.description}`
+  }];
+}
+
+function npmInferenceFromLockfileVersion(value: unknown): { major?: string; description: string } | undefined {
+  // These are init-time hints. Validation still relies on the selected pm and
+  // lockfile type rather than treating lockfileVersion as a complete version map.
+  if (value === 1) {
+    return { major: '6', description: 'npm 5.x/6.x; prefer npm 6.x for modern CI' };
+  }
+  if (value === 2) {
+    return { description: 'npm 7.x/8.x' };
+  }
+  if (value === 3) {
+    return { description: 'npm 9.x or newer' };
+  }
+  return undefined;
+}
+
+async function inferPnpmLock(file: string): Promise<LockfileInference[]> {
+  let content: string;
+  try {
+    content = await fs.readFile(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  const match = content.match(/^lockfileVersion:\s*['"]?([0-9]+(?:\.[0-9]+)?)['"]?/m);
+  const inference = match ? pnpmInferenceFromLockfileVersion(match[1]) : undefined;
+  if (!inference) {
+    return [{
+      pm: 'pnpm',
+      source: 'pnpm-lock.yaml',
+      detail: 'detected pnpm-lock.yaml'
+    }];
+  }
+
+  return [{
+    pm: 'pnpm',
+    versionMajor: inference.major,
+    source: 'pnpm-lock.yaml',
+    detail: `pnpm-lock.yaml lockfileVersion ${match![1]} suggests ${inference.description}`
+  }];
+}
+
+function pnpmInferenceFromLockfileVersion(value: string): { major?: string; description: string } | undefined {
+  // pnpm lockfiles can be consumed across adjacent releases, so only stable
+  // historic shapes become exact major hints.
+  if (value.startsWith('5.4')) {
+    return { major: '7', description: 'pnpm 7.x' };
+  }
+  if (value.startsWith('6')) {
+    return { major: '8', description: 'pnpm 8.x' };
+  }
+  if (value.startsWith('9')) {
+    return { description: 'pnpm 9.x or newer' };
+  }
+  return undefined;
+}
+
+async function inferYarnLock(file: string): Promise<LockfileInference[]> {
+  let content: string;
+  try {
+    content = await fs.readFile(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  if (/^__metadata:/m.test(content)) {
+    return [{
+      pm: 'yarn',
+      source: 'yarn.lock',
+      detail: 'yarn.lock metadata suggests Yarn Berry (2+)'
+    }];
+  }
+
+  return [{
+    pm: 'yarn',
+    versionMajor: '1',
+    source: 'yarn.lock',
+    detail: 'yarn.lock suggests Yarn 1.x'
+  }];
 }

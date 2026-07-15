@@ -9,9 +9,9 @@ English documentation: [README.md](README.md).
 ## 项目提供什么
 
 - `.ci/toolchain.json`：项目侧工具链声明，支持 Node.js 和 Java 场景。
-- `devops-cli`：用于生成、校验、打印和解析工具链声明的 TypeScript CLI。
+- `devops-toolchain`：用于生成、校验、打印和解析工具链声明的 TypeScript CLI。
 - Node Docker Runner：按 Node 大版本选择 Docker 镜像执行构建。
-- 宿主机工具脚本：基于 `mise` 制备共享的 `devops-cli` Node.js runtime，以及 Jenkins 节点上的 JDK、Maven、Gradle。
+- 宿主机工具脚本：基于 `mise` 制备共享的 `devops-toolchain` Node.js runtime，以及 Jenkins 节点上的 JDK、Maven、Gradle。
 - Jenkins 复制片段：适用于普通 `Pipeline script from SCM` 的 Groovy helper。
 - 分发打包：通过 Makefile 和脚本产出 CLI tarball 与平台 tarball。
 
@@ -68,16 +68,18 @@ node dist/user-cli.js validate --file ../../.ci/toolchain.json --project-dir ../
 
 发布后的用户侧 npm 包支持 Node.js 12.22.0 及以上，便于在较旧的业务项目本地环境中运行。源码构建和平台产物打包仍按本仓库开发工具链执行，可能使用更高版本的 Node.js 工具。
 
+用户侧包名为 `@devops/toolchain-cli`，安装后提供 `devops-toolchain` 命令。`devops-cli` 名称保留给未来面向终端用户的综合 DevOps CLI。
+
 安装包后的用户命令：
 
 ```bash
-devops-cli init
-devops-cli validate
-devops-cli print
-devops-cli resolve
+devops-toolchain init
+devops-toolchain validate
+devops-toolchain print
+devops-toolchain resolve
 ```
 
-`init` 会优先读取已有 `.ci/toolchain.json` 作为默认值；没有该文件时，会尝试从 `package.json` 中读取 `engines.node`、`volta.node` 和 `packageManager` 作为 Node 项目默认值。交互式配置支持回退到上一个字段，最终确认后再写入 JSON。
+`init` 会优先读取已有 `.ci/toolchain.json` 作为默认值；没有该文件时，会从 `package.json` 和 lockfile 推断。`engines.node` 或 `volta.node` 提供 Node 主版本默认值；`packageManager` 和 lockfile 会提供带来源说明的包管理器候选。如果只能推断出包管理器大版本，CLI 会尝试查询 `registry.npmjs.org` 获取该大版本下最新的精确版本；查询关闭或失败时，交互会保留手动输入项，并把推断到的大版本作为提示展示。交互式配置支持回退到上一个字段，最终确认后再写入 JSON。
 
 当前 npm 包名使用 `@devops` scope，主要用于私服隔离。后续如果发布到公网 npm registry，应先确认 scope 归属和包名策略。
 
@@ -126,7 +128,7 @@ stage('Build') {
     steps {
         script {
             def devopsCi = new DevopsCiToolchain(this)
-            devopsCi.buildByToolchain('.ci/toolchain.json')
+            devopsCi.buildByToolchain()
         }
     }
 }
@@ -135,16 +137,14 @@ stage('Build') {
 业务 pipeline 可以按需覆盖 Node 构建插槽：
 
 ```groovy
+def buildPath = "https://<your-static-cdn>/${projectName}/${processBusinessKey}"
+
 devopsCi.nodeDockerBuild(
-    initScript: { ctx ->
-        """
-        ${ctx.initCommand}
-        npm config set sass_binary_site <your-node-sass-mirror>
-        """
-    },
-    buildScript: { ctx ->
-        "${ctx.buildCommand} -- --mode production"
-    },
+    pmConfig: [
+        sass_binary_site: '<your-node-sass-mirror>',
+        chromedriver_cdnurl: '<your-chromedriver-mirror>'
+    ],
+    buildArgs: [silent: true, buildpath: buildPath],
     afterDocker: { ctx ->
         archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: false
     }
@@ -179,12 +179,12 @@ sudo scripts/install-mise.sh \
 sudo scripts/init-mise-layout.sh --root /data/mise
 sudo scripts/install-tooling-node.sh --root /data/mise lts
 
-sudo scripts/install-devops-ci-cli.sh \
+sudo scripts/install-devops-toolchain-cli.sh \
   --tarball artifacts/cli/devops-ci-agent-linux-x64-0.1.0.tar.gz \
-  --node "$(cat /data/mise/devops-cli-node.path)" \
-  --prefix /data/tools/devops-cli \
+  --node "$(cat /data/mise/devops-toolchain-node.path)" \
+  --prefix /data/tools/devops-toolchain \
   --index /data/devops-ci/index.json \
-  --link /usr/local/bin/devops-cli
+  --link /usr/local/bin/devops-toolchain
 ```
 
 如果平台包构建时没有带 `mise` 二进制或 CLI tarball，就把 `artifacts/mise/...` 或 `artifacts/cli/...` 替换成复制到该 Jenkins 节点上的外部文件路径。
@@ -194,12 +194,12 @@ sudo scripts/install-devops-ci-cli.sh \
 如果已经有合适的 Node.js 可执行文件，可以跳过 `install-tooling-node.sh`，直接传入：
 
 ```bash
-sudo scripts/install-devops-ci-cli.sh \
+sudo scripts/install-devops-toolchain-cli.sh \
   --tarball /path/to/devops-ci-agent-linux-x64-0.1.0.tar.gz \
   --node /path/to/node \
-  --prefix /data/tools/devops-cli \
+  --prefix /data/tools/devops-toolchain \
   --index /data/devops-ci/index.json \
-  --link /usr/local/bin/devops-cli
+  --link /usr/local/bin/devops-toolchain
 ```
 
 Java 构建需要安装对应宿主机工具并重新生成平台 index：
